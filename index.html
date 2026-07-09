@@ -8,7 +8,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
@@ -60,23 +60,18 @@
     -webkit-font-smoothing: antialiased;
     transition: background-color .3s ease, color .3s ease;
     min-height: 100vh;
-    background-image:
-      radial-gradient(at 12% 0%, rgb(var(--primary) / .08) 0px, transparent 50%),
-      radial-gradient(at 88% 8%, rgb(var(--primary) / .05) 0px, transparent 45%);
   }
-  h1, h2, h3, .display { font-family: 'Space Grotesk', sans-serif; letter-spacing: -.01em; }
-  .mono { font-family: 'JetBrains Mono', monospace; }
+  h1, h2, h3, .display { font-family: 'Inter', sans-serif; letter-spacing: -.01em; }
+  .mono { font-family: 'Inter', sans-serif; font-feature-settings: 'tnum'; }
   ::selection { background: rgb(var(--primary) / .22); }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-thumb { background: rgb(var(--muted) / .3); border-radius: 999px; }
 
   /* ============ GLASS SURFACES ============ */
   .glass {
-    background: rgb(var(--glass-bg) / var(--glass-alpha));
-    backdrop-filter: blur(18px) saturate(140%);
-    -webkit-backdrop-filter: blur(18px) saturate(140%);
-    border: 1px solid rgb(var(--ink) / var(--glass-border-alpha));
-    box-shadow: 0 1px 2px rgb(var(--ink) / .04), 0 12px 28px -8px rgb(var(--ink) / .07);
+    background: rgb(var(--surface));
+    border: 1px solid rgb(var(--border));
+    box-shadow: 0 1px 2px rgb(var(--ink) / .03), 0 1px 3px rgb(var(--ink) / .04);
   }
   .glass-hover { transition: transform .22s cubic-bezier(.4,0,.2,1), box-shadow .22s ease, border-color .22s ease; }
   .glass-hover:hover { transform: translateY(-2px); box-shadow: 0 1px 2px rgb(var(--ink) / .04), 0 20px 40px -10px rgb(var(--ink) / .12); border-color: rgb(var(--primary) / .3); }
@@ -98,17 +93,36 @@
     background: linear-gradient(160deg, rgb(var(--primary)), rgb(var(--primary-deep))); color: white; font-size: 1.35rem;
     box-shadow: 0 8px 20px -6px rgb(var(--primary) / .5);
   }
-  #app { display: none; max-width: 1600px; margin: 0 auto; }
-  .shell { display: flex; }
-  .sidebar { display: none; }
-  @media (min-width: 1024px) {
-    .sidebar { display: flex; flex-direction: column; width: 15.5rem; flex-shrink: 0; gap: 1.5rem; padding: 1.75rem 1rem; }
+  #app { display: none; }
+  .shell { display: flex; flex-direction: column; }
+
+  /* ============ TOP NAVIGATION BAR ============ */
+  .topnav {
+    background: linear-gradient(100deg, #0B1B3F 0%, #142A5C 55%, rgb(var(--primary-deep)) 100%);
+    padding: .85rem 1rem;
   }
-  .sidebar-inner { border-radius: 1.25rem; padding: 1.25rem 1rem; display: flex; flex-direction: column; gap: 2.25rem; height: 100%; }
-  .brand { display: flex; align-items: center; gap: .6rem; padding: .1rem .35rem .9rem; border-bottom: 1px solid rgb(var(--border)); }
-  .brand .logo-badge { width: 2.1rem; height: 2.1rem; border-radius: .75rem; font-size: .95rem; box-shadow: 0 4px 14px -4px rgb(var(--primary) / .5); }
-  .brand-name { font-size: .85rem; font-weight: 700; line-height: 1.2; letter-spacing: -.01em; }
-  .brand-sub { font-size: .66rem; color: rgb(var(--muted)); line-height: 1.2; margin-top: 1px; }
+  .topnav-inner {
+    max-width: 1600px; margin: 0 auto; display: flex; align-items: center; gap: 1.25rem;
+  }
+  .topnav .brand { display: flex; align-items: center; gap: .6rem; padding: 0; border-bottom: none; flex-shrink: 0; }
+  .topnav .brand .logo-badge { width: 2.15rem; height: 2.15rem; border-radius: .75rem; font-size: .95rem; background: rgba(255,255,255,.14); box-shadow: none; }
+  .topnav .brand-name { color: #fff; font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; line-height: 1.2; }
+  .topnav .brand-sub { color: rgba(255,255,255,.7); font-size: .92rem; font-weight: 700; line-height: 1.25; margin-top: 1px; letter-spacing: -.01em; }
+
+  .topnav .nav { display: none; flex-direction: row; gap: .2rem; background: rgba(255,255,255,.08); border-radius: .9rem; padding: .25rem; margin: 0 auto; }
+  @media (min-width: 1024px) { .topnav .nav { display: flex; } }
+  .topnav .nav-item { color: rgba(255,255,255,.65); width: auto; padding: .5rem .95rem; border-radius: .65rem; }
+  .topnav .nav-item:hover { background: rgba(255,255,255,.08); color: #fff; }
+  .topnav .nav-item.active { background: #fff; color: rgb(var(--primary-deep)); font-weight: 700; }
+  .topnav .nav-item.active::before { display: none; }
+
+  .topnav-right { display: flex; align-items: center; gap: .5rem; flex-shrink: 0; }
+  .topnav .icon-btn { background: rgba(255,255,255,.1); color: #fff; }
+  .topnav .icon-btn:hover { background: rgba(255,255,255,.18); }
+  .topnav .user-chip { background: rgba(255,255,255,.1); }
+  .topnav .user-chip .name { color: #fff; }
+  .topnav .user-chip .lb-avatar { background: rgba(255,255,255,.18); color: #fff; }
+
   .nav { display: flex; flex-direction: column; gap: .15rem; }
   .nav-item {
     display: flex; align-items: center; gap: .7rem; border-radius: .7rem; padding: .6rem .7rem .6rem .9rem;
@@ -131,7 +145,7 @@
   .mobile-nav .nav-item { flex-direction: column; gap: .15rem; font-size: .63rem; padding: .5rem 1rem; width: auto; }
   .mobile-nav .nav-item.active::before { display: none; }
 
-  main { flex: 1; min-width: 0; padding: 1.5rem 1rem 6rem; display: flex; flex-direction: column; gap: 1.5rem; }
+  main { flex: 1; min-width: 0; width: 100%; max-width: 1600px; margin: 0 auto; padding: 1.5rem 1rem 6rem; display: flex; flex-direction: column; gap: 1.5rem; }
   @media (min-width: 640px) { main { padding: 1.5rem; } }
   @media (min-width: 1024px) { main { padding: 2rem; padding-bottom: 2rem; } }
 
@@ -140,7 +154,6 @@
   .topbar h1 { font-size: 1.4rem; font-weight: 700; margin: 0; letter-spacing: -.015em; }
   @media (min-width: 640px) { .topbar h1 { font-size: 1.65rem; } }
   .topbar p { font-size: .82rem; color: rgb(var(--muted)); margin: .3rem 0 0; }
-  .topbar-right { display: flex; align-items: center; gap: .6rem; }
   .icon-btn {
     width: 2.35rem; height: 2.35rem; border-radius: .8rem; display: flex; align-items: center; justify-content: center;
     border: none; cursor: pointer; color: rgb(var(--ink)); transition: background .15s ease;
@@ -170,8 +183,8 @@
   .field { display: flex; flex-direction: column; gap: .3rem; }
   .field label { font-size: .66rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: rgb(var(--muted)); }
   select, input[type="date"], input[type="number"], input[type="text"] {
-    border-radius: .8rem; padding: .55rem .85rem; font-size: .83rem; font-weight: 500; color: rgb(var(--ink));
-    border: 1px solid rgb(var(--ink) / var(--glass-border-alpha)); background: rgb(var(--glass-bg) / var(--glass-alpha));
+    border-radius: .7rem; padding: .5rem .8rem; font-size: .82rem; font-weight: 600; color: rgb(var(--ink));
+    border: 1px solid rgb(var(--border)); background: rgb(var(--canvas));
     cursor: pointer; font-family: inherit; transition: border-color .15s ease, box-shadow .15s ease;
   }
   select:focus, input:focus { outline: none; border-color: rgb(var(--primary) / .5); box-shadow: 0 0 0 3px rgb(var(--primary) / .12); }
@@ -180,19 +193,21 @@
   .kpi-grid { display: grid; grid-template-columns: repeat(1, 1fr); gap: 1rem; }
   @media (min-width: 640px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
   @media (min-width: 1280px) { .kpi-grid { grid-template-columns: repeat(5, 1fr); } }
-  .kpi-card { display: flex; flex-direction: column; gap: 1.1rem; }
-  .kpi-top { display: flex; align-items: center; justify-content: space-between; }
-  .kpi-icon { width: 2.35rem; height: 2.35rem; border-radius: .8rem; display: flex; align-items: center; justify-content: center; }
+  .kpi-card { display: flex; flex-direction: column; gap: 1rem; }
+  .kpi-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; }
+  .kpi-icon { width: 2.35rem; height: 2.35rem; border-radius: .8rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .kpi-icon svg { width: 1.05rem; height: 1.05rem; }
-  .kpi-label { font-size: .78rem; font-weight: 500; color: rgb(var(--muted)); margin: 0; }
-  .kpi-value { font-size: 1.9rem; font-weight: 700; letter-spacing: -.03em; margin: .3rem 0 0; }
-  .kpi-sub { font-size: .72rem; color: rgb(var(--muted)); margin-top: .3rem; }
+  .kpi-label { font-size: .66rem; font-weight: 700; color: rgb(var(--muted)); margin: .3rem 0 0; text-transform: uppercase; letter-spacing: .05em; line-height: 1.3; }
+  .kpi-value { font-size: 1.85rem; font-weight: 700; letter-spacing: -.03em; margin: 0; }
+  .kpi-sub { font-size: .74rem; color: rgb(var(--muted)); margin-top: .35rem; }
   .trend { display: flex; align-items: center; gap: .25rem; font-size: .75rem; font-weight: 600; }
   .trend svg { width: .9rem; height: .9rem; }
 
   .bg-primary { background: rgb(var(--primary) / .1); color: rgb(var(--primary)); }
   .bg-accent { background: rgb(var(--accent) / .1); color: rgb(var(--accent)); }
   .bg-warm { background: rgb(var(--warm) / .1); color: rgb(var(--warm)); }
+  .bg-violet { background: rgb(124 58 237 / .1); color: rgb(124 58 237); }
+  .bg-rose { background: rgb(219 39 119 / .1); color: rgb(219 39 119); }
 
   .kpi-grid .kpi-card:nth-child(1) { animation-delay: .02s; }
   .kpi-grid .kpi-card:nth-child(2) { animation-delay: .06s; }
@@ -327,35 +342,35 @@
 
 <!-- ============ APP SHELL ============ -->
 <div id="app">
-  <div class="shell">
-    <aside class="sidebar">
-      <div class="sidebar-inner glass">
-        <div class="brand">
-          <div class="logo-badge">✦</div>
-          <div>
-            <p class="brand-name">Takahami</p>
-            <p class="brand-sub">Agent Dashboard</p>
-          </div>
+  <header class="topnav">
+    <div class="topnav-inner">
+      <div class="brand">
+        <div class="logo-badge">✦</div>
+        <div>
+          <p class="brand-name">Takahami</p>
+          <p class="brand-sub">Agent Dashboard</p>
         </div>
-        <nav class="nav" id="nav-desktop"></nav>
       </div>
-    </aside>
+      <nav class="nav" id="nav-desktop"></nav>
+      <div class="topnav-right">
+        <button class="icon-btn" id="theme-toggle" title="Toggle theme"></button>
+        <div class="user-chip" id="user-chip">
+          <div class="lb-avatar" id="user-avatar" style="width:2rem;height:2rem;"></div>
+          <div class="who">
+            <p class="name" id="user-name"></p>
+          </div>
+          <button class="icon-btn" id="signout-btn" title="Sign out" style="width:2rem;height:2rem;"></button>
+        </div>
+      </div>
+    </div>
+  </header>
 
+  <div class="shell">
     <main>
       <div class="topbar">
         <div>
           <h1 id="greeting">Welcome back</h1>
           <p>Here's how your productivity looks today.</p>
-        </div>
-        <div class="topbar-right">
-          <button class="icon-btn glass glass-hover" id="theme-toggle" title="Toggle theme"></button>
-          <div class="user-chip glass" id="user-chip">
-            <div class="lb-avatar" id="user-avatar" style="width:2rem;height:2rem;"></div>
-            <div class="who">
-              <p class="name" id="user-name"></p>
-            </div>
-            <button class="icon-btn" id="signout-btn" title="Sign out" style="width:2rem;height:2rem;"></button>
-          </div>
         </div>
       </div>
 
@@ -1157,10 +1172,10 @@ function kpiCardsHtml(cards) {
   return cards.map((c) => `
     <div class="glass glass-hover card kpi-card">
       <div class="kpi-top">
+        <p class="kpi-label">${c.label}</p>
         <div class="kpi-icon bg-${c.accent}">${c.icon}</div>
       </div>
       <div>
-        <p class="kpi-label">${c.label}</p>
         <p class="kpi-value mono">${c.value}</p>
         ${c.sub ? `<p class="kpi-sub">${c.sub}</p>` : ''}
       </div>
@@ -1171,10 +1186,10 @@ function renderKpiCards(me) {
   if (!me) { document.getElementById('kpi-grid').innerHTML = ''; return; }
   const cards = [
     { icon: ICONS.check, label: "Today's Claims", value: fmtNum(me.todayClaims), accent: 'primary' },
-    { icon: ICONS.calendarRange, label: 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), accent: 'primary' },
-    { icon: ICONS.gauge, label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1), accent: 'accent' },
+    { icon: ICONS.calendarRange, label: 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), accent: 'accent' },
+    { icon: ICONS.gauge, label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1), accent: 'violet' },
     { icon: ICONS.calendarCheck, label: 'Attendance', value: fmtPct(me.attendancePct, 1), accent: 'warm' },
-    { icon: ICONS.award, label: 'Current Rank', value: '#' + me.rank, sub: me.kpi.tierLabel, accent: 'primary' },
+    { icon: ICONS.award, label: 'Current Rank', value: '#' + me.rank, sub: me.kpi.tierLabel, accent: 'rose' },
   ];
   document.getElementById('kpi-grid').innerHTML = kpiCardsHtml(cards);
 }
@@ -1192,10 +1207,10 @@ function renderTeamKpiCards(summaries) {
 
   const cards = [
     { icon: ICONS.check, label: "Team Today's Claims", value: fmtNum(todayClaims), accent: 'primary' },
-    { icon: ICONS.calendarRange, label: 'Team Month-to-Date', value: fmtNum(mtdClaims), accent: 'primary' },
-    { icon: ICONS.gauge, label: 'Team Avg Claims / Day', value: fmtNum(avgClaimsPerDay, 1), accent: 'accent' },
+    { icon: ICONS.calendarRange, label: 'Team Month-to-Date', value: fmtNum(mtdClaims), accent: 'accent' },
+    { icon: ICONS.gauge, label: 'Team Avg Claims / Day', value: fmtNum(avgClaimsPerDay, 1), accent: 'violet' },
     { icon: ICONS.calendarCheck, label: 'Team Attendance', value: fmtPct(attendancePct, 1), accent: 'warm' },
-    { icon: ICONS.award, label: 'Top Agent', value: topAgent.agent, sub: topAgent.kpi.tierLabel, accent: 'primary' },
+    { icon: ICONS.award, label: 'Top Agent', value: topAgent.agent, sub: topAgent.kpi.tierLabel, accent: 'rose' },
   ];
   mount.innerHTML = kpiCardsHtml(cards);
 }
