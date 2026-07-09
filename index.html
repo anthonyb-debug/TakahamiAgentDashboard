@@ -375,6 +375,10 @@
             This updates the matching row in your Google Sheet directly. Pick a different date to log or correct an earlier day.
           </p>
           <div style="display:flex; flex-direction:column; gap:1rem;">
+            <div class="field hidden" id="log-agent-field">
+              <label>Logging For</label>
+              <select id="log-agent-select" style="width:100%;"></select>
+            </div>
             <div class="field">
               <label>Date</label>
               <input type="date" id="log-date-input" style="width:100%;" />
@@ -469,6 +473,19 @@ const AGENTS = [
 function agentForEmail(email) {
   const match = AGENTS.find((a) => a.email.toLowerCase() === (email || '').toLowerCase());
   return match ? match.agent : null;
+}
+
+// Managers can view every agent's data and log claims on behalf of any
+// agent (e.g. catching up a missed entry), but never log in as an agent.
+const MANAGERS = [
+  { email: 'anthony.b@allianceglobalsolutions.com', name: 'Anthony B.' },
+  { email: 'paul@allianceglobalsolutions.com',       name: 'Paul' },
+  { email: 'tristan@allianceglobalsolutions.com',    name: 'Tristan' },
+  { email: 'zaldy@allianceglobalsolutions.com',      name: 'Zaldy' },
+];
+function managerForEmail(email) {
+  const match = MANAGERS.find((m) => m.email.toLowerCase() === (email || '').toLowerCase());
+  return match ? match.name : null;
 }
 
 /* ==========================================================================
@@ -884,15 +901,23 @@ function handleCredentialResponse(response) {
   }
 
   const agentName = agentForEmail(email);
-  if (!agentName) {
+  const managerName = agentName ? null : managerForEmail(email);
+
+  if (!agentName && !managerName) {
     document.getElementById('login-error').textContent =
-      "That account isn't set up as an agent on this dashboard. Contact your manager if this seems wrong.";
+      "That account isn't set up as an agent or manager on this dashboard. Contact your manager if this seems wrong.";
     document.getElementById('login-error').classList.remove('hidden');
     return;
   }
 
   document.getElementById('login-error').classList.add('hidden');
-  const identity = { name: agentName, email, picture: payload.picture || '', idToken: response.credential };
+  const identity = {
+    name: agentName || managerName,
+    email,
+    picture: payload.picture || '',
+    idToken: response.credential,
+    role: agentName ? 'agent' : 'manager',
+  };
   localStorage.setItem('takahami_identity', JSON.stringify(identity));
   enterApp(identity);
 }
@@ -1028,11 +1053,18 @@ function renderDashboard() {
 
   const { filteredClaims, filteredAttendance } = applyFilters(state.claims, state.attendance, filters);
   const summaries = computeAgentSummaries(filteredClaims, filteredAttendance, state.agents);
-  const myAgentName = matchAgentName();
-  const me = summaries.find((s) => s.agent === myAgentName) || summaries[0];
+  const isManager = state.identity.role === 'manager';
 
-  renderKpiCards(me);
-  renderGoalProgress(me);
+  if (isManager) {
+    renderTeamKpiCards(summaries);
+    document.getElementById('goal-progress-mount').innerHTML = '';
+  } else {
+    const myAgentName = matchAgentName();
+    const me = summaries.find((s) => s.agent === myAgentName) || summaries[0];
+    renderKpiCards(me);
+    renderGoalProgress(me);
+  }
+
   renderDailyClaimsTable(filteredClaims, filters.agent, 'daily-claims-mount');
   renderLeaderboard(summaries, 'leaderboard-mount');
   renderInsights(computeInsights(filteredClaims, filteredAttendance), 'insights-mount');
@@ -1082,16 +1114,8 @@ function renderDailyClaimsTable(claims, selectedAgent, mountId) {
     </div>`;
 }
 
-function renderKpiCards(me) {
-  if (!me) { document.getElementById('kpi-grid').innerHTML = ''; return; }
-  const cards = [
-    { icon: ICONS.check, label: "Today's Claims", value: fmtNum(me.todayClaims), accent: 'primary' },
-    { icon: ICONS.calendarRange, label: 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), accent: 'primary' },
-    { icon: ICONS.gauge, label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1), accent: 'accent' },
-    { icon: ICONS.calendarCheck, label: 'Attendance', value: fmtPct(me.attendancePct, 1), accent: 'warm' },
-    { icon: ICONS.award, label: 'Current Rank', value: '#' + me.rank, sub: me.kpi.tierLabel, accent: 'primary' },
-  ];
-  document.getElementById('kpi-grid').innerHTML = cards.map((c) => `
+function kpiCardsHtml(cards) {
+  return cards.map((c) => `
     <div class="glass glass-hover card kpi-card">
       <div class="kpi-top">
         <div class="kpi-icon bg-${c.accent}">${c.icon}</div>
@@ -1102,6 +1126,39 @@ function renderKpiCards(me) {
         ${c.sub ? `<p class="kpi-sub">${c.sub}</p>` : ''}
       </div>
     </div>`).join('');
+}
+
+function renderKpiCards(me) {
+  if (!me) { document.getElementById('kpi-grid').innerHTML = ''; return; }
+  const cards = [
+    { icon: ICONS.check, label: "Today's Claims", value: fmtNum(me.todayClaims), accent: 'primary' },
+    { icon: ICONS.calendarRange, label: 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), accent: 'primary' },
+    { icon: ICONS.gauge, label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1), accent: 'accent' },
+    { icon: ICONS.calendarCheck, label: 'Attendance', value: fmtPct(me.attendancePct, 1), accent: 'warm' },
+    { icon: ICONS.award, label: 'Current Rank', value: '#' + me.rank, sub: me.kpi.tierLabel, accent: 'primary' },
+  ];
+  document.getElementById('kpi-grid').innerHTML = kpiCardsHtml(cards);
+}
+
+// Manager view: team-wide totals instead of one agent's personal stats —
+// there's no "me" row for a manager to summarize.
+function renderTeamKpiCards(summaries) {
+  const mount = document.getElementById('kpi-grid');
+  if (!summaries.length) { mount.innerHTML = ''; return; }
+  const todayClaims = summaries.reduce((s, a) => s + a.todayClaims, 0);
+  const mtdClaims = summaries.reduce((s, a) => s + a.mtdClaims, 0);
+  const avgClaimsPerDay = summaries.reduce((s, a) => s + a.avgClaimsPerDay, 0) / summaries.length;
+  const attendancePct = summaries.reduce((s, a) => s + a.attendancePct, 0) / summaries.length;
+  const topAgent = summaries[0]; // already sorted by rank
+
+  const cards = [
+    { icon: ICONS.check, label: "Team Today's Claims", value: fmtNum(todayClaims), accent: 'primary' },
+    { icon: ICONS.calendarRange, label: 'Team Month-to-Date', value: fmtNum(mtdClaims), accent: 'primary' },
+    { icon: ICONS.gauge, label: 'Team Avg Claims / Day', value: fmtNum(avgClaimsPerDay, 1), accent: 'accent' },
+    { icon: ICONS.calendarCheck, label: 'Team Attendance', value: fmtPct(attendancePct, 1), accent: 'warm' },
+    { icon: ICONS.award, label: 'Top Agent', value: topAgent.agent, sub: topAgent.kpi.tierLabel, accent: 'primary' },
+  ];
+  mount.innerHTML = kpiCardsHtml(cards);
 }
 
 function renderGoalProgress(me) {
@@ -1258,6 +1315,15 @@ function renderLogClaims() {
   const claimsInput = document.getElementById('log-claims-input');
   const statusEl = document.getElementById('log-status');
   const submitBtn = document.getElementById('log-submit-btn');
+  const agentField = document.getElementById('log-agent-field');
+  const agentSelect = document.getElementById('log-agent-select');
+
+  const isManager = state.identity.role === 'manager';
+  agentField.classList.toggle('hidden', !isManager);
+  if (isManager && !agentSelect.dataset.populated) {
+    agentSelect.innerHTML = AGENTS.map((a) => `<option value="${a.agent}">${a.agent}</option>`).join('');
+    agentSelect.dataset.populated = 'true';
+  }
 
   if (!dateInput.value) dateInput.value = todayISO();
 
@@ -1273,12 +1339,13 @@ function renderLogClaims() {
   submitBtn.onclick = async () => {
     const dateStr = dateInput.value;
     const claimsVal = parseInt(claimsInput.value, 10);
+    const agent = isManager ? agentSelect.value : state.identity.name;
     if (!dateStr) { statusEl.textContent = 'Pick a date first.'; statusEl.style.color = cssVarColor('--warm'); return; }
+    if (isManager && !agent) { statusEl.textContent = 'Choose who you\'re logging for.'; statusEl.style.color = cssVarColor('--warm'); return; }
     if (isNaN(claimsVal) || claimsVal < 0) { statusEl.textContent = 'Enter a valid number of claims.'; statusEl.style.color = cssVarColor('--warm'); return; }
 
     const d = new Date(dateStr + 'T00:00:00');
     const year = d.getFullYear(), month = d.getMonth() + 1, day = d.getDate();
-    const agent = state.identity.name;
 
     submitBtn.disabled = true;
     submitBtn.textContent = 'Saving…';
@@ -1295,7 +1362,7 @@ function renderLogClaims() {
       else state.claims.push({ year, month, day, date: dateStr, agent, claims: claimsVal });
 
       statusEl.style.color = cssVarColor('--accent');
-      statusEl.textContent = 'Saved ' + new Date().toLocaleTimeString() + '.';
+      statusEl.textContent = 'Saved ' + new Date().toLocaleTimeString() + (isManager ? ' for ' + agent + '.' : '.');
       renderLogHistory(agent);
     } catch (err) {
       console.error('Failed to save claims', err);
@@ -1312,7 +1379,9 @@ function renderLogClaims() {
     }
   };
 
-  renderLogHistory(state.identity.name);
+  const historyTarget = isManager ? (agentSelect.value || AGENTS[0].agent) : state.identity.name;
+  renderLogHistory(historyTarget);
+  if (isManager) agentSelect.onchange = () => renderLogHistory(agentSelect.value);
 }
 
 function renderLogHistory(agent) {
@@ -1354,11 +1423,25 @@ function renderProfile() {
   const myClaims = state.claims.filter((c) => c.agent === myAgentName);
   renderLineChart('profile-chart', claimsTrendSeries(myClaims), 'date', 'claims', 'primary', true);
 
-  document.getElementById('profile-note-mount').innerHTML = myAgentName ? '' : `
-    <div class="error-banner glass" style="margin-top:1.5rem;">
-      We couldn't match your Google account name to an agent row in the sheet. Make sure the
-      "Agent" column matches your display name exactly.
-    </div>`;
+  const noteMount = document.getElementById('profile-note-mount');
+  if (myAgentName) {
+    noteMount.innerHTML = '';
+  } else if (state.identity.role === 'manager') {
+    noteMount.innerHTML = `
+      <div class="glass card" style="margin-top:1.5rem;">
+        <p style="font-size:.85rem; color:rgb(var(--muted)); margin:0;">
+          You're signed in as a manager, so there's no personal claims history to show here.
+          Use <strong>Dashboard</strong> or <strong>History</strong> to review any agent's data,
+          or <strong>Log Claims</strong> to log on their behalf.
+        </p>
+      </div>`;
+  } else {
+    noteMount.innerHTML = `
+      <div class="error-banner glass" style="margin-top:1.5rem;">
+        We couldn't match your Google account name to an agent row in the sheet. Make sure the
+        "Agent" column matches your display name exactly.
+      </div>`;
+  }
 }
 
 /* ==========================================================================
