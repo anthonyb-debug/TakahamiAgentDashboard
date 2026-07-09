@@ -1378,12 +1378,10 @@ function renderLogClaims() {
     } catch (err) {
       console.error('Failed to save claims', err);
       statusEl.style.color = cssVarColor('--warm');
-      if (err.code === 'AUTH_EXPIRED') {
-        statusEl.textContent = 'Your sign-in has expired. Signing you out — please sign in again and retry.';
-        setTimeout(signOut, 2000);
-      } else {
-        statusEl.textContent = "Couldn't save — " + err.message;
-      }
+      // Temporarily showing the full message (even for AUTH_EXPIRED) so we
+      // can see the real cause instead of guessing — once confirmed, this
+      // can go back to the shorter "please sign in again" wording.
+      statusEl.textContent = "Couldn't save — " + err.message;
     } finally {
       submitBtn.disabled = false;
       submitBtn.textContent = 'Save to Sheet';
