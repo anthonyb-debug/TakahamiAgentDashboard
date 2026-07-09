@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Takahami Agent Dashboard</title>
+<meta name="description" content="Agent productivity tracker for Takahami Medical Billing" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+<style>
+  /* ============ DESIGN TOKENS ============ */
+  :root {
+    --ink: 16 19 26;
+    --canvas: 244 246 251;
+    --surface: 255 255 255;
+    --border: 226 230 240;
+    --primary: 91 95 239;
+    --accent: 23 184 144;
+    --warm: 255 138 91;
+    --muted: 100 110 130;
+    --glass-bg: 255 255 255;
+    --glass-alpha: 0.6;
+    --glass-border-alpha: 0.4;
+    --gold: #D4AF37;
+    --silver: #B9C2CE;
+    --bronze: #C08552;
+  }
+  :root[data-theme="dark"] {
+    --ink: 236 238 245;
+    --canvas: 10 13 20;
+    --surface: 20 24 34;
+    --border: 40 46 62;
+    --primary: 129 140 255;
+    --accent: 45 214 168;
+    --warm: 255 154 111;
+    --muted: 148 158 178;
+    --glass-bg: 24 28 40;
+    --glass-alpha: 0.55;
+    --glass-border-alpha: 0.14;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background-color: rgb(var(--canvas));
+    color: rgb(var(--ink));
+    font-family: 'Inter', sans-serif;
+    transition: background-color .3s ease, color .3s ease;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(at 15% 0%, rgb(var(--primary) / .14) 0px, transparent 55%),
+      radial-gradient(at 85% 15%, rgb(var(--warm) / .10) 0px, transparent 50%),
+      radial-gradient(at 50% 100%, rgb(var(--accent) / .10) 0px, transparent 55%);
+  }
+  h1, h2, h3, .display { font-family: 'Space Grotesk', sans-serif; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  ::selection { background: rgb(var(--primary) / .25); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgb(var(--muted) / .3); border-radius: 999px; }
+
+  /* ============ GLASS SURFACES ============ */
+  .glass {
+    background: rgb(var(--glass-bg) / var(--glass-alpha));
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgb(var(--ink) / var(--glass-border-alpha));
+    box-shadow: 0 8px 32px 0 rgb(var(--ink) / .06);
+  }
+  .glass-hover { transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease; }
+  .glass-hover:hover { transform: translateY(-2px); box-shadow: 0 16px 44px -8px rgb(var(--ink) / .14); border-color: rgb(var(--primary) / .35); }
+
+  .card { border-radius: 1.75rem; padding: 1.5rem; }
+
+  /* ============ LAYOUT ============ */
+  #login-screen {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1rem;
+  }
+  #login-card { width: 100%; max-width: 26rem; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 1.25rem; padding: 2.5rem 2rem; }
+  .logo-badge {
+    width: 3.5rem; height: 3.5rem; border-radius: 1.75rem; display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, rgb(var(--primary)), rgb(var(--warm))); color: white; font-size: 1.5rem;
+  }
+  #app { display: none; max-width: 1600px; margin: 0 auto; }
+  .shell { display: flex; }
+  .sidebar { display: none; }
+  @media (min-width: 1024px) {
+    .sidebar { display: flex; flex-direction: column; width: 16rem; flex-shrink: 0; gap: 1.5rem; padding: 2rem 1.25rem; }
+  }
+  .sidebar-inner { border-radius: 1.75rem; padding: 1.25rem; display: flex; flex-direction: column; gap: 2rem; height: 100%; }
+  .brand { display: flex; align-items: center; gap: .5rem; padding: 0 .25rem; }
+  .brand .logo-badge { width: 2.25rem; height: 2.25rem; border-radius: .9rem; font-size: 1rem; }
+  .brand-name { font-size: .85rem; font-weight: 700; line-height: 1.2; }
+  .brand-sub { font-size: .68rem; color: rgb(var(--muted)); line-height: 1.2; }
+  .nav { display: flex; flex-direction: column; gap: .25rem; }
+  .nav-item {
+    display: flex; align-items: center; gap: .75rem; border-radius: 1rem; padding: .65rem .75rem;
+    font-size: .875rem; font-weight: 500; color: rgb(var(--muted)); cursor: pointer; border: none; background: none; text-align: left; width: 100%;
+  }
+  .nav-item:hover { background: rgb(var(--ink) / .05); color: rgb(var(--ink)); }
+  .nav-item.active { background: rgb(var(--primary) / .12); color: rgb(var(--primary)); }
+  .nav-item svg { width: 1rem; height: 1rem; flex-shrink: 0; }
+
+  .mobile-nav {
+    position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%); z-index: 40;
+    display: flex; gap: .25rem; border-radius: 1.75rem; padding: .4rem;
+  }
+  @media (min-width: 1024px) { .mobile-nav { display: none; } }
+  .mobile-nav .nav-item { flex-direction: column; gap: .15rem; font-size: .65rem; padding: .5rem 1rem; width: auto; }
+
+  main { flex: 1; min-width: 0; padding: 1.5rem 1rem 6rem; display: flex; flex-direction: column; gap: 1.5rem; }
+  @media (min-width: 640px) { main { padding: 1.5rem; } }
+  @media (min-width: 1024px) { main { padding: 2rem; padding-bottom: 2rem; } }
+
+  /* ============ TOPBAR ============ */
+  .topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; padding: 0 .25rem .5rem; }
+  .topbar h1 { font-size: 1.5rem; font-weight: 700; margin: 0; }
+  @media (min-width: 640px) { .topbar h1 { font-size: 1.8rem; } }
+  .topbar p { font-size: .85rem; color: rgb(var(--muted)); margin: .25rem 0 0; }
+  .topbar-right { display: flex; align-items: center; gap: .75rem; }
+  .icon-btn {
+    width: 2.5rem; height: 2.5rem; border-radius: 1rem; display: flex; align-items: center; justify-content: center;
+    border: none; cursor: pointer; color: rgb(var(--ink));
+  }
+  .icon-btn svg { width: 1.1rem; height: 1.1rem; }
+  .user-chip { display: flex; align-items: center; gap: .6rem; border-radius: 1rem; padding: .35rem .6rem .35rem .35rem; }
+  .user-chip img { width: 2rem; height: 2rem; border-radius: 999px; object-fit: cover; }
+  .user-chip .who { display: none; }
+  @media (min-width: 640px) { .user-chip .who { display: block; } }
+  .user-chip .who .name { font-size: .82rem; font-weight: 600; line-height: 1.15; }
+  .user-chip .who .email { font-size: .68rem; color: rgb(var(--muted)); line-height: 1.15; }
+
+  /* ============ BUTTONS ============ */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: .5rem; border-radius: 1rem;
+    font-size: .85rem; font-weight: 600; height: 2.5rem; padding: 0 1rem; cursor: pointer; border: none;
+    transition: filter .2s ease, transform .2s ease;
+  }
+  .btn svg { width: 1rem; height: 1rem; }
+  .btn-primary { background: rgb(var(--primary)); color: white; box-shadow: 0 0 40px -8px rgb(var(--primary) / .45); }
+  .btn-primary:hover { filter: brightness(1.1); }
+  .btn-primary.lg { height: 3rem; font-size: .95rem; width: 100%; }
+  .btn-glass { color: rgb(var(--ink)); }
+
+  /* ============ FILTERS ============ */
+  .filters-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .75rem; }
+  .field { display: flex; flex-direction: column; gap: .35rem; }
+  .field label { font-size: .68rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: rgb(var(--muted)); }
+  select, input[type="date"] {
+    border-radius: 1rem; padding: .6rem .9rem; font-size: .85rem; font-weight: 500; color: rgb(var(--ink));
+    border: 1px solid rgb(var(--ink) / var(--glass-border-alpha)); background: rgb(var(--glass-bg) / var(--glass-alpha));
+    cursor: pointer; font-family: inherit;
+  }
+  select:focus, input:focus { outline: none; box-shadow: 0 0 0 2px rgb(var(--primary) / .4); }
+
+  /* ============ KPI GRID ============ */
+  .kpi-grid { display: grid; grid-template-columns: repeat(1, 1fr); gap: 1rem; }
+  @media (min-width: 640px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (min-width: 1280px) { .kpi-grid { grid-template-columns: repeat(5, 1fr); } }
+  .kpi-card { display: flex; flex-direction: column; gap: 1rem; }
+  .kpi-top { display: flex; align-items: center; justify-content: space-between; }
+  .kpi-icon { width: 2.5rem; height: 2.5rem; border-radius: 1rem; display: flex; align-items: center; justify-content: center; }
+  .kpi-icon svg { width: 1.15rem; height: 1.15rem; }
+  .kpi-label { font-size: .85rem; font-weight: 500; color: rgb(var(--muted)); margin: 0; }
+  .kpi-value { font-size: 1.8rem; font-weight: 700; letter-spacing: -.02em; margin: .25rem 0 0; }
+  .kpi-sub { font-size: .75rem; color: rgb(var(--muted)); margin-top: .25rem; }
+  .trend { display: flex; align-items: center; gap: .25rem; font-size: .75rem; font-weight: 600; }
+  .trend svg { width: .9rem; height: .9rem; }
+
+  .bg-primary { background: rgb(var(--primary) / .12); color: rgb(var(--primary)); }
+  .bg-accent { background: rgb(var(--accent) / .12); color: rgb(var(--accent)); }
+  .bg-warm { background: rgb(var(--warm) / .12); color: rgb(var(--warm)); }
+
+  /* ============ GOAL PROGRESS ============ */
+  .goal-card { display: flex; flex-direction: column; align-items: center; gap: 1.25rem; background: linear-gradient(135deg, rgb(var(--primary) / .05), rgb(var(--warm) / .05)); }
+  @media (min-width: 640px) { .goal-card { flex-direction: row; justify-content: space-between; } }
+  .goal-left { display: flex; flex-direction: column; gap: .6rem; text-align: center; }
+  @media (min-width: 640px) { .goal-left { text-align: left; } }
+  .goal-eyebrow { display: flex; align-items: center; justify-content: center; gap: .4rem; font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: rgb(var(--muted)); }
+  @media (min-width: 640px) { .goal-eyebrow { justify-content: flex-start; } }
+  .goal-eyebrow svg { width: .9rem; height: .9rem; color: rgb(var(--warm)); }
+  .goal-title { font-size: 1.4rem; font-weight: 700; margin: 0; }
+  .goal-detail { font-size: .85rem; color: rgb(var(--muted)); margin: .35rem 0 0; }
+  .ring-wrap { position: relative; display: flex; align-items: center; justify-content: center; width: 148px; height: 148px; }
+  .ring-wrap svg { transform: rotate(-90deg); }
+  .ring-center { position: absolute; display: flex; flex-direction: column; align-items: center; }
+  .ring-pct { font-size: 1.4rem; font-weight: 700; }
+  .ring-label { font-size: .7rem; font-weight: 500; color: rgb(var(--muted)); margin-top: .15rem; }
+  .ring-sub { font-size: .65rem; color: rgb(var(--muted) / .8); }
+
+  /* ============ TWO COLUMN GRID ============ */
+  .two-col { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
+  @media (min-width: 1280px) { .two-col { grid-template-columns: 2fr 1fr; } }
+  .charts-col { display: flex; flex-direction: column; gap: 1.5rem; }
+  .chart-grid-2 { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
+  @media (min-width: 640px) { .chart-grid-2 { grid-template-columns: 1fr 1fr; } }
+  .chart-title { font-size: 1.1rem; font-weight: 700; margin: 0 0 1rem; }
+  .chart-wrap { height: 260px; position: relative; }
+
+  /* ============ LEADERBOARD ============ */
+  .lb-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .75rem; }
+  .lb-head h3 { margin: 0; font-size: 1.1rem; font-weight: 700; }
+  .lb-head span { font-size: .7rem; color: rgb(var(--muted)); }
+  .lb-row { display: flex; align-items: center; gap: 1rem; padding: .75rem 0; border-bottom: 1px solid rgb(var(--border) / .6); }
+  .lb-row:last-child { border-bottom: none; }
+  .lb-row.me { background: rgb(var(--primary) / .05); border-radius: 1rem; padding: .75rem; margin: 0 -0.5rem; }
+  .rank-badge { width: 2.25rem; height: 2.25rem; border-radius: 999px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .85rem; flex-shrink: 0; background: rgb(var(--ink) / .06); color: rgb(var(--ink) / .7); }
+  .rank-1 { background: linear-gradient(135deg, var(--gold), #fde68a); color: #10131A; }
+  .rank-2 { background: linear-gradient(135deg, var(--silver), #e2e8f0); color: #10131A; }
+  .rank-3 { background: linear-gradient(135deg, var(--bronze), #fdba74); color: white; }
+  .lb-avatar { width: 2.25rem; height: 2.25rem; border-radius: 999px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: rgb(var(--primary) / .1); color: rgb(var(--primary)); font-size: .75rem; font-weight: 700; flex-shrink: 0; }
+  .lb-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .lb-name { flex: 1; min-width: 0; }
+  .lb-name p { margin: 0; font-size: .85rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lb-name span { font-size: .7rem; color: rgb(var(--muted)); }
+  .lb-stats { text-align: right; }
+  .lb-stats .val { margin: 0; font-size: .95rem; font-weight: 700; }
+  .lb-stats .tier { font-size: .7rem; color: rgb(var(--muted)); }
+  .empty-state { text-align: center; padding: 2rem 0; font-size: .85rem; color: rgb(var(--muted)); }
+
+  /* ============ INSIGHTS ============ */
+  .insights-grid { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+  @media (min-width: 640px) { .insights-grid { grid-template-columns: 1fr 1fr; } }
+  @media (min-width: 1024px) { .insights-grid { grid-template-columns: 1fr 1fr 1fr; } }
+  .insight-item { display: flex; align-items: flex-start; gap: .75rem; }
+  .insight-icon { width: 2.25rem; height: 2.25rem; border-radius: 1rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .insight-icon svg { width: 1rem; height: 1rem; }
+  .insight-label { font-size: .72rem; font-weight: 500; color: rgb(var(--muted)); margin: 0; }
+  .insight-value { font-size: .85rem; font-weight: 700; margin: .15rem 0 0; }
+
+  /* ============ PROFILE ============ */
+  .profile-header { display: flex; flex-direction: column; align-items: center; gap: 1rem; text-align: center; }
+  @media (min-width: 640px) { .profile-header { flex-direction: row; text-align: left; } }
+  .profile-avatar { width: 5rem; height: 5rem; border-radius: 999px; object-fit: cover; background: rgb(var(--primary) / .15); }
+  .profile-badges { display: flex; gap: .5rem; margin-top: .5rem; justify-content: center; flex-wrap: wrap; }
+  @media (min-width: 640px) { .profile-badges { justify-content: flex-start; } }
+  .pill { border-radius: 999px; padding: .3rem .75rem; font-size: .72rem; font-weight: 700; }
+  .pill-primary { background: rgb(var(--primary) / .1); color: rgb(var(--primary)); }
+  .pill-accent { background: rgb(var(--accent) / .1); color: rgb(var(--accent)); }
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (min-width: 1024px) { .stat-grid { grid-template-columns: repeat(4, 1fr); } }
+  .stat-label { font-size: .72rem; font-weight: 500; color: rgb(var(--muted)); margin: 0; }
+  .stat-value { font-size: 1.4rem; font-weight: 700; margin: .25rem 0 0; }
+
+  .hidden { display: none !important; }
+  .error-banner { border: 1px solid rgb(var(--warm) / .4); background: rgb(var(--warm) / .1); border-radius: 1rem; padding: 1rem; font-size: .85rem; }
+  .loading-text { text-align: center; font-size: .85rem; color: rgb(var(--muted)); padding: 1rem 0; }
+  .shimmer { background: linear-gradient(90deg, rgb(var(--ink)/.04) 25%, rgb(var(--ink)/.08) 37%, rgb(var(--ink)/.04) 63%); background-size: 400% 100%; animation: shimmer 1.4s ease infinite; border-radius: 1rem; }
+  @keyframes shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN SCREEN ============ -->
+<div id="login-screen">
+  <div id="login-card" class="glass card">
+    <div class="logo-badge">✦</div>
+    <div>
+      <h1 style="font-size:1.4rem; font-weight:700; margin:0;">Takahami Agent Dashboard</h1>
+      <p style="font-size:.85rem; color:rgb(var(--muted)); margin:.5rem 0 0;">Enter your name exactly as it appears in the "Agent" column of the sheet.</p>
+    </div>
+    <div style="width:100%; display:flex; flex-direction:column; gap:.75rem;">
+      <input type="text" id="name-input" placeholder="e.g. Jane Alvarez"
+        style="width:100%; border-radius:1rem; padding:.75rem 1rem; font-size:.9rem; font-family:inherit; border:1px solid rgb(var(--ink) / var(--glass-border-alpha)); background:rgb(var(--glass-bg) / var(--glass-alpha)); color:rgb(var(--ink));" />
+      <button class="btn btn-primary lg" id="continue-btn">Continue</button>
+    </div>
+    <p id="login-error" class="hidden" style="font-size:.75rem; font-weight:600; color:rgb(var(--warm)); margin:0;">
+      Please enter your name to continue.
+    </p>
+    <div style="display:flex; align-items:center; gap:.4rem; font-size:.68rem; color:rgb(var(--muted));">
+      Google sign-in is temporarily disabled — this is just how the dashboard knows which row is yours.
+    </div>
+  </div>
+</div>
+
+<!-- ============ APP SHELL ============ -->
+<div id="app">
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="sidebar-inner glass">
+        <div class="brand">
+          <div class="logo-badge">✦</div>
+          <div>
+            <p class="brand-name">Takahami</p>
+            <p class="brand-sub">Agent Dashboard</p>
+          </div>
+        </div>
+        <nav class="nav" id="nav-desktop"></nav>
+      </div>
+    </aside>
+
+    <main>
+      <div class="topbar">
+        <div>
+          <h1 id="greeting">Welcome back</h1>
+          <p>Here's how your productivity looks today.</p>
+        </div>
+        <div class="topbar-right">
+          <button class="icon-btn glass glass-hover" id="theme-toggle" title="Toggle theme"></button>
+          <div class="user-chip glass" id="user-chip">
+            <div class="lb-avatar" id="user-avatar" style="width:2rem;height:2rem;"></div>
+            <div class="who">
+              <p class="name" id="user-name"></p>
+            </div>
+            <button class="icon-btn" id="signout-btn" title="Sign out" style="width:2rem;height:2rem;"></button>
+          </div>
+        </div>
+      </div>
+
+      <div id="global-error" class="error-banner glass hidden"></div>
+
+      <!-- ===== DASHBOARD VIEW ===== -->
+      <div id="view-dashboard">
+        <div class="filters-bar glass card" id="filters-bar"></div>
+        <div class="kpi-grid" id="kpi-grid" style="margin-top:1.5rem;"></div>
+        <div id="goal-progress-mount" style="margin-top:1.5rem;"></div>
+
+        <div class="two-col" style="margin-top:1.5rem;">
+          <div class="charts-col">
+            <div class="glass card">
+              <h3 class="chart-title">Claims Trend</h3>
+              <div class="chart-wrap"><canvas id="chart-claims-trend"></canvas></div>
+            </div>
+            <div class="chart-grid-2">
+              <div class="glass card">
+                <h3 class="chart-title">Daily Average</h3>
+                <div class="chart-wrap"><canvas id="chart-daily-average"></canvas></div>
+              </div>
+              <div class="glass card">
+                <h3 class="chart-title">Weekly Productivity</h3>
+                <div class="chart-wrap"><canvas id="chart-weekly"></canvas></div>
+              </div>
+            </div>
+            <div class="glass card">
+              <h3 class="chart-title">Attendance Trend</h3>
+              <div class="chart-wrap"><canvas id="chart-attendance"></canvas></div>
+            </div>
+          </div>
+          <div class="glass card" id="leaderboard-mount"></div>
+        </div>
+
+        <div class="glass card" style="margin-top:1.5rem;" id="insights-mount"></div>
+      </div>
+
+      <!-- ===== HISTORY VIEW ===== -->
+      <div id="view-history" class="hidden">
+        <div class="filters-bar glass card" id="history-filters-bar"></div>
+        <div class="glass card" style="margin-top:1.5rem;">
+          <h3 class="chart-title">Claims Trend</h3>
+          <div class="chart-wrap"><canvas id="hist-chart-claims"></canvas></div>
+        </div>
+        <div class="chart-grid-2" style="margin-top:1.5rem;">
+          <div class="glass card">
+            <h3 class="chart-title">Weekly Productivity</h3>
+            <div class="chart-wrap"><canvas id="hist-chart-weekly"></canvas></div>
+          </div>
+          <div class="glass card">
+            <h3 class="chart-title">Attendance Trend</h3>
+            <div class="chart-wrap"><canvas id="hist-chart-attendance"></canvas></div>
+          </div>
+        </div>
+        <div class="glass card" style="margin-top:1.5rem;" id="history-insights-mount"></div>
+      </div>
+
+      <!-- ===== PROFILE VIEW ===== -->
+      <div id="view-profile" class="hidden">
+        <div class="glass card profile-header" id="profile-header-mount"></div>
+        <div class="stat-grid" style="margin-top:1.5rem;" id="profile-stats-mount"></div>
+        <div class="glass card" style="margin-top:1.5rem;">
+          <h3 class="chart-title">Performance Trend</h3>
+          <div class="chart-wrap"><canvas id="profile-chart"></canvas></div>
+        </div>
+        <div id="profile-note-mount"></div>
+      </div>
+    </main>
+  </div>
+
+  <nav class="mobile-nav glass" id="nav-mobile"></nav>
+</div>
+
+<script>
+/* ==========================================================================
+   CONFIG — edit these before deploying. See README.md for full setup steps.
+   ========================================================================== */
+const CONFIG = {
+  // The Google Sheet ID from its URL: .../spreadsheets/d/THIS_PART/edit
+  // The sheet must be shared as "Anyone with the link — Viewer".
+  SPREADSHEET_ID: '1fhNnXup4tLyUHbiMKKiOELr-hdxJm57tOWh2IUnP8v0',
+
+  // Exact tab names in the spreadsheet.
+  CLAIMS_SHEET_NAME: 'Prod',
+  ATTENDANCE_SHEET_NAME: 'Att',
+
+  // How often to re-poll Google Sheets for changes (ms).
+  POLL_INTERVAL_MS: 15000,
+};
+
+/* ==========================================================================
+   ICONS (inline SVG strings, stroke-based, theme-aware via currentColor)
+   ========================================================================== */
+const ICONS = {
+  dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>',
+  history: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>',
+  profile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>',
+  moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
+  logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+  calendarRange: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+  gauge: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/><path d="M12 12l4-4"/></svg>',
+  calendarCheck: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="m9 16 2 2 4-4"/></svg>',
+  award: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="6"/><path d="m8.21 13.89-1.5 7.11 5.29-3 5.29 3-1.5-7.11"/></svg>',
+  target: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>',
+  download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+  trophy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3a2 2 0 0 1-2 4M7 5H4a2 2 0 0 0 2 4"/></svg>',
+  trending: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
+  lineChart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>',
+  activity: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
+};
+
+/* ==========================================================================
+   KPI SCORING — mirrors the standard + Christia Mapa special-case tables.
+   ========================================================================== */
+const STANDARD_TIERS = [
+  { level: 3, min: 45, max: 59 },
+  { level: 4, min: 60, max: 79 },
+  { level: 5, min: 80, max: null },
+];
+const SPECIAL_TIERS = [
+  { level: 3, min: 27, max: 42 },
+  { level: 4, min: 43, max: 58 },
+  { level: 5, min: 59, max: null },
+];
+const CHRISTIA_MAPA_NAME = 'christia mapa';
+
+function isSpecialAgent(name) {
+  return (name || '').trim().toLowerCase() === CHRISTIA_MAPA_NAME;
+}
+function getTiersForAgent(name) {
+  return isSpecialAgent(name) ? SPECIAL_TIERS : STANDARD_TIERS;
+}
+function calculateKpi(agentName, avgClaimsPerDay) {
+  const tiers = getTiersForAgent(agentName);
+  const rounded = Math.round(avgClaimsPerDay);
+  let matched = null;
+  for (const t of tiers) {
+    if (rounded >= t.min && (t.max === null || rounded <= t.max)) { matched = t; break; }
+  }
+  const topTier = tiers[tiers.length - 1];
+  return {
+    level: matched ? matched.level : 0,
+    tierLabel: matched ? ('KPI ' + matched.level) : 'Below KPI 3',
+    dailyGoal: topTier.min,
+  };
+}
+function goalProgress(agentName, todayClaims) {
+  const tiers = getTiersForAgent(agentName);
+  const goal = tiers[tiers.length - 1].min;
+  const remaining = Math.max(goal - todayClaims, 0);
+  const progressPct = Math.min(Math.round((todayClaims / goal) * 100), 100);
+  return { goal, current: todayClaims, remaining, progressPct };
+}
+
+/* ==========================================================================
+   UTILITIES
+   ========================================================================== */
+function fmtNum(n, decimals = 0) {
+  return Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: decimals, minimumFractionDigits: decimals });
+}
+function fmtPct(n, decimals = 0) {
+  return Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: decimals }) + '%';
+}
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+function isoWeekNumber(dateStr) {
+  const date = new Date(dateStr + 'T00:00:00');
+  date.setDate(date.getDate() + 3 - ((date.getDay() + 6) % 7));
+  const week1 = new Date(date.getFullYear(), 0, 4);
+  return 1 + Math.round(((date - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+}
+function todayISO() {
+  const d = new Date();
+  const tz = d.getTimezoneOffset() * 60000;
+  return new Date(d - tz).toISOString().slice(0, 10);
+}
+function cssVarColor(name, alpha) {
+  const val = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return alpha !== undefined ? `rgb(${val} / ${alpha})` : `rgb(${val})`;
+}
+function initialsOf(name) {
+  return (name || '').trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
+}
+function avatarHtml(name, photo) {
+  return photo ? `<img src="${photo}" alt="${name || ''}">` : initialsOf(name);
+}
+
+/* ==========================================================================
+   DATA FETCH — reads two published/shared Google Sheet tabs as CSV via the
+   gviz endpoint (works for sheets shared as "Anyone with the link — Viewer",
+   no API key or server needed). Polled on an interval for near-real-time sync.
+   ========================================================================== */
+function sheetCsvUrl(sheetName) {
+  return `https://docs.google.com/spreadsheets/d/${CONFIG.SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+}
+
+function parseCsv(text) {
+  const result = Papa.parse(text.trim(), { skipEmptyLines: true });
+  return result.data;
+}
+
+function toNum(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+async function fetchClaims() {
+  const res = await fetch(sheetCsvUrl(CONFIG.CLAIMS_SHEET_NAME), { cache: 'no-store' });
+  if (!res.ok) throw new Error('Failed to load Claims sheet (' + res.status + ')');
+  const rows = parseCsv(await res.text());
+  // Row 0 is the header (Year, Month, Day, Date, Agent, Claims) — skip it.
+  return rows.slice(1)
+    .filter((r) => r.length >= 6 && r[4])
+    .map((r) => ({
+      year: toNum(r[0]), month: toNum(r[1]), day: toNum(r[2]),
+      date: String(r[3]).trim(), agent: String(r[4]).trim(), claims: toNum(r[5]),
+    }));
+}
+
+async function fetchAttendance() {
+  const res = await fetch(sheetCsvUrl(CONFIG.ATTENDANCE_SHEET_NAME), { cache: 'no-store' });
+  if (!res.ok) throw new Error('Failed to load Attendance sheet (' + res.status + ')');
+  const rows = parseCsv(await res.text());
+  return rows.slice(1)
+    .filter((r) => r.length >= 4 && r[2])
+    .map((r) => ({
+      year: toNum(r[0]), month: toNum(r[1]), agent: String(r[2]).trim(), attendance: toNum(r[3]),
+    }));
+}
+
+/* ==========================================================================
+   AGGREGATION
+   ========================================================================== */
+function applyFilters(claims, attendance, f) {
+  const filteredClaims = claims.filter((c) => {
+    if (f.year && c.year !== f.year) return false;
+    if (f.month !== 'all' && c.month !== f.month) return false;
+    if (f.agent !== 'all' && c.agent !== f.agent) return false;
+    if (f.week !== 'all' && isoWeekNumber(c.date) !== f.week) return false;
+    if (f.dateFrom && c.date < f.dateFrom) return false;
+    if (f.dateTo && c.date > f.dateTo) return false;
+    return true;
+  });
+  const filteredAttendance = attendance.filter((a) => {
+    if (f.year && a.year !== f.year) return false;
+    if (f.month !== 'all' && a.month !== f.month) return false;
+    if (f.agent !== 'all' && a.agent !== f.agent) return false;
+    return true;
+  });
+  return { filteredClaims, filteredAttendance };
+}
+
+function uniqueAgents(claims, attendance) {
+  const set = new Set();
+  claims.forEach((c) => set.add(c.agent));
+  attendance.forEach((a) => set.add(a.agent));
+  return Array.from(set).sort();
+}
+function uniqueYears(claims) {
+  const y = Array.from(new Set(claims.map((c) => c.year))).sort((a, b) => b - a);
+  return y.length ? y : [new Date().getFullYear()];
+}
+
+function computeAgentSummaries(claims, attendance, agentNames) {
+  const today = todayISO();
+  const summaries = agentNames.map((agent) => {
+    const agentClaims = claims.filter((c) => c.agent === agent);
+    const todayClaims = agentClaims.filter((c) => c.date === today).reduce((s, c) => s + c.claims, 0);
+    const mtdClaims = agentClaims.reduce((s, c) => s + c.claims, 0);
+    const activeDays = new Set(agentClaims.map((c) => c.date)).size;
+    const avgClaimsPerDay = activeDays > 0 ? mtdClaims / activeDays : 0;
+    const agentAttendance = attendance.filter((a) => a.agent === agent);
+    const attendancePct = agentAttendance.length
+      ? agentAttendance.reduce((s, a) => s + a.attendance, 0) / agentAttendance.length : 0;
+    const kpi = calculateKpi(agent, avgClaimsPerDay);
+    return { agent, todayClaims, mtdClaims, avgClaimsPerDay, attendancePct, kpi, rank: 0 };
+  });
+  const ranked = [...summaries].sort((a, b) => b.mtdClaims - a.mtdClaims);
+  ranked.forEach((s, i) => { const o = summaries.find((x) => x.agent === s.agent); if (o) o.rank = i + 1; });
+  return summaries.sort((a, b) => a.rank - b.rank);
+}
+
+function claimsTrendSeries(claims) {
+  const byDate = new Map();
+  claims.forEach((c) => byDate.set(c.date, (byDate.get(c.date) || 0) + c.claims));
+  return Array.from(byDate.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([date, claims]) => ({ date, claims }));
+}
+function dailyAverageSeries(claims) {
+  const byDate = new Map();
+  claims.forEach((c) => {
+    const e = byDate.get(c.date) || { total: 0, agents: new Set() };
+    e.total += c.claims; e.agents.add(c.agent); byDate.set(c.date, e);
+  });
+  return Array.from(byDate.entries()).sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, v]) => ({ date, average: v.agents.size ? v.total / v.agents.size : 0 }));
+}
+function weeklyProductivitySeries(claims) {
+  const byWeek = new Map();
+  claims.forEach((c) => { const w = isoWeekNumber(c.date); byWeek.set(w, (byWeek.get(w) || 0) + c.claims); });
+  return Array.from(byWeek.entries()).sort(([a], [b]) => a - b).map(([week, claims]) => ({ week: 'W' + week, claims }));
+}
+function attendanceTrendSeries(attendance) {
+  const byMonth = new Map();
+  attendance.forEach((a) => {
+    const key = a.year + '-' + String(a.month).padStart(2, '0');
+    const e = byMonth.get(key) || { total: 0, count: 0 };
+    e.total += a.attendance; e.count += 1; byMonth.set(key, e);
+  });
+  return Array.from(byMonth.entries()).sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, v]) => ({ month, attendance: v.count ? v.total / v.count : 0 }));
+}
+
+function computeInsights(claims, attendance) {
+  if (claims.length === 0) {
+    return {
+      highestClaimsDay: null, avgDailyProductivity: 0, bestPerformingWeek: null,
+      monthlyGrowthPct: null,
+      attendanceRate: attendance.length ? attendance.reduce((s, a) => s + a.attendance, 0) / attendance.length : 0,
+      consistencyScore: 0,
+    };
+  }
+  const byDate = new Map();
+  claims.forEach((c) => byDate.set(c.date, (byDate.get(c.date) || 0) + c.claims));
+  const highestEntry = Array.from(byDate.entries()).sort(([, a], [, b]) => b - a)[0];
+  const highestClaimsDay = highestEntry ? { date: highestEntry[0], claims: highestEntry[1] } : null;
+
+  const dailyTotals = Array.from(byDate.values());
+  const avgDailyProductivity = dailyTotals.reduce((s, v) => s + v, 0) / (dailyTotals.length || 1);
+
+  const byWeek = new Map();
+  claims.forEach((c) => { const w = isoWeekNumber(c.date); byWeek.set(w, (byWeek.get(w) || 0) + c.claims); });
+  const bestWeekEntry = Array.from(byWeek.entries()).sort(([, a], [, b]) => b - a)[0];
+  const bestPerformingWeek = bestWeekEntry ? { weekLabel: 'Week ' + bestWeekEntry[0], totalClaims: bestWeekEntry[1] } : null;
+
+  const byMonth = new Map();
+  claims.forEach((c) => { const k = c.year + '-' + String(c.month).padStart(2, '0'); byMonth.set(k, (byMonth.get(k) || 0) + c.claims); });
+  const monthKeys = Array.from(byMonth.keys()).sort();
+  let monthlyGrowthPct = null;
+  if (monthKeys.length >= 2) {
+    const prev = byMonth.get(monthKeys[monthKeys.length - 2]) || 0;
+    const curr = byMonth.get(monthKeys[monthKeys.length - 1]) || 0;
+    monthlyGrowthPct = prev > 0 ? ((curr - prev) / prev) * 100 : null;
+  }
+  const attendanceRate = attendance.length ? attendance.reduce((s, a) => s + a.attendance, 0) / attendance.length : 0;
+
+  const mean = avgDailyProductivity;
+  const variance = dailyTotals.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / (dailyTotals.length || 1);
+  const stdDev = Math.sqrt(variance);
+  const cov = mean > 0 ? stdDev / mean : 0;
+  const consistencyScore = Math.max(0, Math.min(100, Math.round(100 - cov * 100)));
+
+  return { highestClaimsDay, avgDailyProductivity, bestPerformingWeek, monthlyGrowthPct, attendanceRate, consistencyScore };
+}
+
+function claimsToCsv(rows) {
+  const esc = (v) => (/[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v);
+  const header = ['Year', 'Month', 'Day', 'Date', 'Agent', 'Claims'].join(',');
+  const lines = rows.map((r) => [r.year, r.month, r.day, r.date, esc(r.agent), r.claims].join(','));
+  return [header, ...lines].join('\n');
+}
+function downloadCsv(filename, csv) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+/* ==========================================================================
+   APP STATE
+   ========================================================================== */
+const state = {
+  identity: null,      // { name, email, picture }
+  claims: [],
+  attendance: [],
+  agents: [],
+  years: [],
+  view: 'dashboard',    // dashboard | history | profile
+  dashFilters: null,
+  historyFilters: null,
+  charts: {},           // Chart.js instances keyed by canvas id
+  pollHandle: null,
+};
+
+/* ==========================================================================
+   IDENTITY — Google sign-in is temporarily disabled. Instead, the agent
+   just types their name (matching the "Agent" column) so the dashboard
+   knows which row is theirs. This is NOT an access control mechanism —
+   anyone can type anyone's name. It exists purely so the KPI cards,
+   Goal Progress, and "(you)" highlighting work. Re-enable real Google
+   sign-in later by restoring the OAuth flow documented in README.md.
+   ========================================================================== */
+function handleContinue() {
+  const input = document.getElementById('name-input');
+  const name = input.value.trim();
+  if (!name) {
+    document.getElementById('login-error').classList.remove('hidden');
+    return;
+  }
+  document.getElementById('login-error').classList.add('hidden');
+  const identity = { name, email: '', picture: '' };
+  localStorage.setItem('takahami_identity', JSON.stringify(identity));
+  enterApp(identity);
+}
+
+function initLoginForm() {
+  document.getElementById('continue-btn').addEventListener('click', handleContinue);
+  document.getElementById('name-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleContinue();
+  });
+}
+
+function signOut() {
+  localStorage.removeItem('takahami_identity');
+  if (state.pollHandle) clearInterval(state.pollHandle);
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+}
+
+/* ==========================================================================
+   RENDER — NAVIGATION, TOPBAR, THEME
+   ========================================================================== */
+function navItems() {
+  return [
+    { id: 'dashboard', label: 'Dashboard', icon: ICONS.dashboard },
+    { id: 'history', label: 'History', icon: ICONS.history },
+    { id: 'profile', label: 'Profile', icon: ICONS.profile },
+  ];
+}
+function renderNav() {
+  const build = (mobile) => navItems().map((item) => `
+    <button class="nav-item ${state.view === item.id ? 'active' : ''}" data-view="${item.id}">
+      ${item.icon}<span>${item.label}</span>
+    </button>`).join('');
+  document.getElementById('nav-desktop').innerHTML = build(false);
+  document.getElementById('nav-mobile').innerHTML = build(true);
+  document.querySelectorAll('[data-view]').forEach((btn) => {
+    btn.addEventListener('click', () => switchView(btn.getAttribute('data-view')));
+  });
+}
+function switchView(view) {
+  state.view = view;
+  ['dashboard', 'history', 'profile'].forEach((v) => {
+    document.getElementById('view-' + v).classList.toggle('hidden', v !== view);
+  });
+  renderNav();
+  if (view === 'dashboard') renderDashboard();
+  if (view === 'history') renderHistory();
+  if (view === 'profile') renderProfile();
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  document.getElementById('theme-toggle').innerHTML = theme === 'dark' ? ICONS.sun : ICONS.moon;
+  localStorage.setItem('takahami_theme', theme);
+}
+function initTheme() {
+  const saved = localStorage.getItem('takahami_theme') || 'light';
+  applyTheme(saved);
+  document.getElementById('theme-toggle').addEventListener('click', () => {
+    const current = document.documentElement.getAttribute('data-theme');
+    applyTheme(current === 'dark' ? 'light' : 'dark');
+    // Chart colors depend on CSS vars; re-render current view for correct contrast.
+    if (state.view === 'dashboard') renderDashboard();
+    if (state.view === 'history') renderHistory();
+    if (state.view === 'profile') renderProfile();
+  });
+}
+
+function renderTopbarUser() {
+  document.getElementById('user-avatar').innerHTML = avatarHtml(state.identity.name, state.identity.picture);
+  document.getElementById('user-name').textContent = state.identity.name || '';
+  document.getElementById('greeting').textContent = 'Welcome back' + (state.identity.name ? ', ' + state.identity.name.split(' ')[0] : '');
+  document.getElementById('signout-btn').innerHTML = ICONS.logout;
+  document.getElementById('signout-btn').addEventListener('click', signOut);
+}
+
+/* ==========================================================================
+   IDENTITY → AGENT MATCH
+   ========================================================================== */
+function matchAgentName() {
+  const target = (state.identity.name || '').trim().toLowerCase();
+  return state.agents.find((a) => a.trim().toLowerCase() === target);
+}
+
+/* ==========================================================================
+   RENDER — FILTERS BAR (shared shape, used on both dashboard + history)
+   ========================================================================== */
+function filtersBarHtml(filters, opts) {
+  const monthOptions = MONTH_NAMES.map((m, i) => `<option value="${i + 1}" ${filters.month === i + 1 ? 'selected' : ''}>${m}</option>`).join('');
+  const yearOptions = state.years.map((y) => `<option value="${y}" ${filters.year === y ? 'selected' : ''}>${y}</option>`).join('');
+  const agentOptions = state.agents.map((a) => `<option value="${a}" ${filters.agent === a ? 'selected' : ''}>${a}</option>`).join('');
+  const weekOptions = Array.from({ length: 53 }, (_, i) => i + 1)
+    .map((w) => `<option value="${w}" ${filters.week === w ? 'selected' : ''}>Week ${w}</option>`).join('');
+
+  return `
+    <div class="field"><label>Year</label>
+      <select data-filter="year">${yearOptions}</select></div>
+    <div class="field"><label>Month</label>
+      <select data-filter="month"><option value="all" ${filters.month === 'all' ? 'selected' : ''}>All months</option>${monthOptions}</select></div>
+    <div class="field"><label>Agent</label>
+      <select data-filter="agent"><option value="all" ${filters.agent === 'all' ? 'selected' : ''}>All agents</option>${agentOptions}</select></div>
+    ${opts.showWeek ? `<div class="field"><label>Week</label>
+      <select data-filter="week"><option value="all" ${filters.week === 'all' ? 'selected' : ''}>All weeks</option>${weekOptions}</select></div>` : ''}
+    ${opts.showDateRange ? `
+    <div class="field"><label>From</label><input type="date" data-filter="dateFrom" value="${filters.dateFrom || ''}"></div>
+    <div class="field"><label>To</label><input type="date" data-filter="dateTo" value="${filters.dateTo || ''}"></div>` : ''}
+    ${opts.showExport ? `<button class="btn btn-glass glass glass-hover" id="export-btn" style="margin-left:auto;">${ICONS.download}Export CSV</button>` : ''}
+  `;
+}
+
+/* ==========================================================================
+   RENDER — DASHBOARD VIEW
+   ========================================================================== */
+function renderDashboard() {
+  const filters = state.dashFilters;
+  document.getElementById('filters-bar').innerHTML = filtersBarHtml(filters, { showWeek: true, showDateRange: true, showExport: true });
+  wireFilterInputs('filters-bar', filters, renderDashboard);
+  document.getElementById('export-btn').addEventListener('click', () => {
+    const { filteredClaims } = applyFilters(state.claims, state.attendance, filters);
+    downloadCsv('takahami-claims-export.csv', claimsToCsv(filteredClaims));
+  });
+
+  const { filteredClaims, filteredAttendance } = applyFilters(state.claims, state.attendance, filters);
+  const summaries = computeAgentSummaries(filteredClaims, filteredAttendance, state.agents);
+  const myAgentName = matchAgentName();
+  const me = summaries.find((s) => s.agent === myAgentName) || summaries[0];
+
+  renderKpiCards(me);
+  renderGoalProgress(me);
+  renderLeaderboard(summaries, 'leaderboard-mount');
+  renderInsights(computeInsights(filteredClaims, filteredAttendance), 'insights-mount');
+
+  renderLineChart('chart-claims-trend', claimsTrendSeries(filteredClaims), 'date', 'claims', 'primary', true);
+  renderLineChart('chart-daily-average', dailyAverageSeries(filteredClaims), 'date', 'average', 'accent', false);
+  renderBarChart('chart-weekly', weeklyProductivitySeries(filteredClaims), 'week', 'claims');
+  renderLineChart('chart-attendance', attendanceTrendSeries(filteredAttendance), 'month', 'attendance', 'warm', true, 100);
+}
+
+function renderKpiCards(me) {
+  if (!me) { document.getElementById('kpi-grid').innerHTML = ''; return; }
+  const cards = [
+    { icon: ICONS.check, label: "Today's Claims", value: fmtNum(me.todayClaims), accent: 'primary' },
+    { icon: ICONS.calendarRange, label: 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), accent: 'primary' },
+    { icon: ICONS.gauge, label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1), accent: 'accent' },
+    { icon: ICONS.calendarCheck, label: 'Attendance', value: fmtPct(me.attendancePct, 1), accent: 'warm' },
+    { icon: ICONS.award, label: 'Current Rank', value: '#' + me.rank, sub: me.kpi.tierLabel, accent: 'primary' },
+  ];
+  document.getElementById('kpi-grid').innerHTML = cards.map((c) => `
+    <div class="glass glass-hover card kpi-card">
+      <div class="kpi-top">
+        <div class="kpi-icon bg-${c.accent}">${c.icon}</div>
+      </div>
+      <div>
+        <p class="kpi-label">${c.label}</p>
+        <p class="kpi-value mono">${c.value}</p>
+        ${c.sub ? `<p class="kpi-sub">${c.sub}</p>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+function renderGoalProgress(me) {
+  const mount = document.getElementById('goal-progress-mount');
+  if (!me) { mount.innerHTML = ''; return; }
+  const gp = goalProgress(me.agent, me.todayClaims);
+  const size = 148, stroke = 12, radius = (size - stroke) / 2, circumference = 2 * Math.PI * radius;
+  const offset = circumference - (gp.progressPct / 100) * circumference;
+  mount.innerHTML = `
+    <div class="glass glass-hover card goal-card">
+      <div class="goal-left">
+        <div class="goal-eyebrow">${ICONS.target}Today's Goal</div>
+        <div>
+          <p class="goal-title display">${gp.goal} Claims</p>
+          <p class="goal-detail"><span class="mono" style="font-weight:700;color:rgb(var(--ink));">${gp.current}</span> processed &middot; <span class="mono" style="font-weight:700;color:rgb(var(--warm));">${gp.remaining}</span> remaining</p>
+        </div>
+      </div>
+      <div class="ring-wrap">
+        <svg width="${size}" height="${size}">
+          <defs><linearGradient id="ring-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="${cssVarColor('--primary')}" /><stop offset="100%" stop-color="${cssVarColor('--warm')}" />
+          </linearGradient></defs>
+          <circle cx="${size/2}" cy="${size/2}" r="${radius}" fill="none" stroke="${cssVarColor('--ink', 0.08)}" stroke-width="${stroke}" />
+          <circle cx="${size/2}" cy="${size/2}" r="${radius}" fill="none" stroke="url(#ring-gradient)" stroke-width="${stroke}"
+            stroke-linecap="round" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"
+            style="transition: stroke-dashoffset 1s ease;" />
+        </svg>
+        <div class="ring-center">
+          <span class="ring-pct mono">${gp.progressPct}%</span>
+          <span class="ring-label">to goal</span>
+          <span class="ring-sub mono">${gp.current}/${gp.goal}</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderLeaderboard(summaries, mountId) {
+  const mount = document.getElementById(mountId);
+  const rows = summaries.map((s) => {
+    const isMe = state.identity && s.agent.trim().toLowerCase() === (state.identity.name || '').trim().toLowerCase();
+    const photo = isMe ? state.identity.picture : null;
+    const rankClass = s.rank <= 3 ? 'rank-' + s.rank : '';
+    return `
+      <div class="lb-row ${isMe ? 'me' : ''}">
+        <div class="rank-badge ${rankClass}">${s.rank}</div>
+        <div class="lb-avatar">${avatarHtml(s.agent, photo)}</div>
+        <div class="lb-name"><p>${s.agent} ${isMe ? '<span style="color:rgb(var(--primary));">(you)</span>' : ''}</p><span>Avg ${fmtNum(s.avgClaimsPerDay, 1)} / day</span></div>
+        <div class="lb-stats"><p class="val mono">${fmtNum(s.mtdClaims)}</p><p class="tier">${s.kpi.tierLabel}</p></div>
+      </div>`;
+  }).join('');
+  mount.innerHTML = `
+    <div class="lb-head"><h3>Leaderboard</h3><span>Ranked by claims processed</span></div>
+    ${rows || '<div class="empty-state">No data for the selected filters yet.</div>'}
+  `;
+}
+
+function renderInsights(insights, mountId) {
+  const items = [
+    { icon: ICONS.trophy, label: 'Highest Claims Day', value: insights.highestClaimsDay ? `${insights.highestClaimsDay.claims} on ${insights.highestClaimsDay.date}` : '—' },
+    { icon: ICONS.gauge, label: 'Avg Daily Productivity', value: fmtNum(insights.avgDailyProductivity, 1) },
+    { icon: ICONS.lineChart, label: 'Best Performing Week', value: insights.bestPerformingWeek ? `${insights.bestPerformingWeek.weekLabel} (${insights.bestPerformingWeek.totalClaims})` : '—' },
+    { icon: ICONS.trending, label: 'Monthly Growth', value: insights.monthlyGrowthPct !== null ? (insights.monthlyGrowthPct > 0 ? '+' : '') + insights.monthlyGrowthPct.toFixed(1) + '%' : '—' },
+    { icon: ICONS.calendarCheck, label: 'Attendance Rate', value: fmtPct(insights.attendanceRate, 1) },
+    { icon: ICONS.activity, label: 'Consistency Score', value: insights.consistencyScore + ' / 100' },
+  ];
+  document.getElementById(mountId).innerHTML = `
+    <h3 class="chart-title">Performance Insights</h3>
+    <div class="insights-grid">
+      ${items.map((it) => `
+        <div class="insight-item">
+          <div class="insight-icon bg-primary">${it.icon}</div>
+          <div><p class="insight-label">${it.label}</p><p class="insight-value mono">${it.value}</p></div>
+        </div>`).join('')}
+    </div>`;
+}
+
+/* ==========================================================================
+   RENDER — CHARTS (Chart.js)
+   ========================================================================== */
+function destroyChart(id) { if (state.charts[id]) { state.charts[id].destroy(); delete state.charts[id]; } }
+
+function renderLineChart(canvasId, data, xKey, yKey, colorVar, filled, maxY) {
+  destroyChart(canvasId);
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  const color = cssVarColor('--' + colorVar);
+  const fillColor = cssVarColor('--' + colorVar, 0.15);
+  state.charts[canvasId] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: data.map((d) => d[xKey]),
+      datasets: [{
+        data: data.map((d) => d[yKey]), borderColor: color, backgroundColor: fillColor,
+        fill: !!filled, tension: 0.35, pointRadius: 0, borderWidth: 2.5,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { backgroundColor: cssVarColor('--surface'), titleColor: cssVarColor('--ink'), bodyColor: cssVarColor('--ink'), borderColor: cssVarColor('--border'), borderWidth: 1 } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: cssVarColor('--muted'), font: { size: 10 } } },
+        y: { max: maxY, grid: { color: cssVarColor('--border') }, ticks: { color: cssVarColor('--muted'), font: { size: 10 } } },
+      },
+    },
+  });
+}
+
+function renderBarChart(canvasId, data, xKey, yKey) {
+  destroyChart(canvasId);
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  const maxIndex = data.reduce((best, d, i) => (d[yKey] > (data[best] ? data[best][yKey] : -1) ? i : best), 0);
+  const primary = cssVarColor('--primary'), warm = cssVarColor('--warm');
+  state.charts[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.map((d) => d[xKey]),
+      datasets: [{ data: data.map((d) => d[yKey]), backgroundColor: data.map((_, i) => (i === maxIndex ? warm : primary)), borderRadius: 8 }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { backgroundColor: cssVarColor('--surface'), titleColor: cssVarColor('--ink'), bodyColor: cssVarColor('--ink'), borderColor: cssVarColor('--border'), borderWidth: 1 } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: cssVarColor('--muted'), font: { size: 10 } } },
+        y: { grid: { color: cssVarColor('--border') }, ticks: { color: cssVarColor('--muted'), font: { size: 10 } } },
+      },
+    },
+  });
+}
+
+/* ==========================================================================
+   RENDER — HISTORY VIEW
+   ========================================================================== */
+function renderHistory() {
+  const filters = state.historyFilters;
+  document.getElementById('history-filters-bar').innerHTML = filtersBarHtml(filters, { showWeek: false, showDateRange: false, showExport: false });
+  wireFilterInputs('history-filters-bar', filters, renderHistory);
+
+  const { filteredClaims, filteredAttendance } = applyFilters(state.claims, state.attendance, filters);
+  renderLineChart('hist-chart-claims', claimsTrendSeries(filteredClaims), 'date', 'claims', 'primary', true);
+  renderBarChart('hist-chart-weekly', weeklyProductivitySeries(filteredClaims), 'week', 'claims');
+  renderLineChart('hist-chart-attendance', attendanceTrendSeries(filteredAttendance), 'month', 'attendance', 'warm', true, 100);
+  renderInsights(computeInsights(filteredClaims, filteredAttendance), 'history-insights-mount');
+}
+
+/* ==========================================================================
+   RENDER — PROFILE VIEW
+   ========================================================================== */
+function renderProfile() {
+  const myAgentName = matchAgentName();
+  const summaries = computeAgentSummaries(state.claims, state.attendance, state.agents);
+  const me = summaries.find((s) => s.agent === myAgentName);
+
+  document.getElementById('profile-header-mount').innerHTML = `
+    <div class="profile-avatar" style="display:flex; align-items:center; justify-content:center; font-size:1.4rem; font-weight:700; color:rgb(var(--primary));">${avatarHtml(state.identity.name, state.identity.picture)}</div>
+    <div>
+      <h2 class="display" style="margin:0; font-size:1.3rem; font-weight:700;">${state.identity.name || ''}</h2>
+      ${me ? `<div class="profile-badges">
+        <span class="pill pill-primary">Rank #${me.rank}</span>
+        <span class="pill pill-accent">${me.kpi.tierLabel}</span>
+      </div>` : ''}
+    </div>`;
+
+  const currentMonthLabel = MONTH_NAMES[new Date().getMonth()];
+  if (me) {
+    const stats = [
+      { label: `Claims (${currentMonthLabel})`, value: fmtNum(me.mtdClaims) },
+      { label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1) },
+      { label: 'Attendance', value: fmtPct(me.attendancePct, 1) },
+      { label: 'Current KPI', value: me.kpi.level || '—' },
+    ];
+    document.getElementById('profile-stats-mount').innerHTML = stats.map((s) => `
+      <div class="glass glass-hover card">
+        <p class="stat-label">${s.label}</p><p class="stat-value mono">${s.value}</p>
+      </div>`).join('');
+  } else {
+    document.getElementById('profile-stats-mount').innerHTML = '';
+  }
+
+  const myClaims = state.claims.filter((c) => c.agent === myAgentName);
+  renderLineChart('profile-chart', claimsTrendSeries(myClaims), 'date', 'claims', 'primary', true);
+
+  document.getElementById('profile-note-mount').innerHTML = myAgentName ? '' : `
+    <div class="error-banner glass" style="margin-top:1.5rem;">
+      We couldn't match your Google account name to an agent row in the sheet. Make sure the
+      "Agent" column matches your display name exactly.
+    </div>`;
+}
+
+/* ==========================================================================
+   FILTER WIRING
+   ========================================================================== */
+function wireFilterInputs(containerId, filters, rerender) {
+  document.querySelectorAll(`#${containerId} [data-filter]`).forEach((el) => {
+    el.addEventListener('change', () => {
+      const key = el.getAttribute('data-filter');
+      let value = el.value;
+      if (key === 'year' || key === 'month' || key === 'week') {
+        value = value === 'all' ? 'all' : Number(value);
+      }
+      if ((key === 'dateFrom' || key === 'dateTo') && value === '') value = undefined;
+      filters[key] = value;
+      rerender();
+    });
+  });
+}
+
+/* ==========================================================================
+   DATA LOAD + POLLING
+   ========================================================================== */
+async function loadData(showErrors = true) {
+  try {
+    const [claims, attendance] = await Promise.all([fetchClaims(), fetchAttendance()]);
+    state.claims = claims;
+    state.attendance = attendance;
+    state.agents = uniqueAgents(claims, attendance);
+    state.years = uniqueYears(claims);
+    document.getElementById('global-error').classList.add('hidden');
+    if (state.view === 'dashboard') renderDashboard();
+    if (state.view === 'history') renderHistory();
+    if (state.view === 'profile') renderProfile();
+  } catch (err) {
+    console.error('Failed to load Google Sheets data', err);
+    if (showErrors) {
+      const banner = document.getElementById('global-error');
+      banner.textContent = "Couldn't load live data from Google Sheets. Check CONFIG.SPREADSHEET_ID and that the sheet is shared as \"Anyone with the link — Viewer\".";
+      banner.classList.remove('hidden');
+    }
+  }
+}
+
+/* ==========================================================================
+   BOOTSTRAP
+   ========================================================================== */
+function enterApp(identity) {
+  state.identity = identity;
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
+  state.dashFilters = { year: currentYear, month: currentMonth, agent: 'all', week: 'all' };
+  state.historyFilters = { year: currentYear, month: 'all', agent: 'all', week: 'all' };
+
+  renderNav();
+  renderTopbarUser();
+  switchView('dashboard');
+  loadData();
+
+  if (state.pollHandle) clearInterval(state.pollHandle);
+  state.pollHandle = setInterval(() => loadData(false), CONFIG.POLL_INTERVAL_MS);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  initTheme();
+  initLoginForm();
+  const saved = localStorage.getItem('takahami_identity');
+  if (saved) {
+    try { enterApp(JSON.parse(saved)); } catch (e) { localStorage.removeItem('takahami_identity'); }
+  }
+});
+</script>
+</body>
+</html>
