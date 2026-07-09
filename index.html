@@ -224,6 +224,23 @@
   .lb-stats .tier { font-size: .7rem; color: rgb(var(--muted)); }
   .empty-state { text-align: center; padding: 2rem 0; font-size: .85rem; color: rgb(var(--muted)); }
 
+  /* ============ DAILY CLAIMS TABLE ============ */
+  .dc-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .75rem; flex-wrap: wrap; gap: .5rem; }
+  .dc-head h3 { margin: 0; font-size: 1.1rem; font-weight: 700; }
+  .dc-head span { font-size: .7rem; color: rgb(var(--muted)); }
+  .dc-table-wrap { max-height: 320px; overflow-y: auto; border-radius: 1rem; }
+  table.dc-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  table.dc-table thead th {
+    position: sticky; top: 0; background: rgb(var(--surface)); text-align: left; font-size: .68rem;
+    font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: rgb(var(--muted));
+    padding: .5rem .75rem; border-bottom: 1px solid rgb(var(--border));
+  }
+  table.dc-table thead th.num, table.dc-table tbody td.num { text-align: right; }
+  table.dc-table tbody td { padding: .5rem .75rem; border-bottom: 1px solid rgb(var(--border) / .5); }
+  table.dc-table tbody tr:last-child td { border-bottom: none; }
+  table.dc-table tbody tr.dc-best { background: rgb(var(--warm) / .08); }
+  table.dc-table tfoot td { padding: .6rem .75rem; font-weight: 700; border-top: 1px solid rgb(var(--border)); }
+
   /* ============ INSIGHTS ============ */
   .insights-grid { display: grid; grid-template-columns: 1fr; gap: 1rem; }
   @media (min-width: 640px) { .insights-grid { grid-template-columns: 1fr 1fr; } }
@@ -324,6 +341,7 @@
         <div class="filters-bar glass card" id="filters-bar"></div>
         <div class="kpi-grid" id="kpi-grid" style="margin-top:1.5rem;"></div>
         <div id="goal-progress-mount" style="margin-top:1.5rem;"></div>
+        <div id="daily-claims-mount" style="margin-top:1.5rem;"></div>
 
         <div class="two-col" style="margin-top:1.5rem;">
           <div class="charts-col">
@@ -625,7 +643,9 @@ function computeAgentSummaries(claims, attendance, agentNames) {
     const agentClaims = claims.filter((c) => c.agent === agent);
     const todayClaims = agentClaims.filter((c) => c.date === today).reduce((s, c) => s + c.claims, 0);
     const mtdClaims = agentClaims.reduce((s, c) => s + c.claims, 0);
-    const activeDays = new Set(agentClaims.map((c) => c.date)).size;
+    // Only count days they actually processed something — a blank/zero
+    // cell shouldn't count as an "active" day and drag the average down.
+    const activeDays = new Set(agentClaims.filter((c) => c.claims > 0).map((c) => c.date)).size;
     const avgClaimsPerDay = activeDays > 0 ? mtdClaims / activeDays : 0;
     const agentAttendance = attendance.filter((a) => a.agent === agent);
     const attendancePct = agentAttendance.length
@@ -887,6 +907,7 @@ function renderDashboard() {
 
   renderKpiCards(me);
   renderGoalProgress(me);
+  renderDailyClaimsTable(filteredClaims, filters.agent, 'daily-claims-mount');
   renderLeaderboard(summaries, 'leaderboard-mount');
   renderInsights(computeInsights(filteredClaims, filteredAttendance), 'insights-mount');
 
@@ -894,6 +915,45 @@ function renderDashboard() {
   renderLineChart('chart-daily-average', dailyAverageSeries(filteredClaims), 'date', 'average', 'accent', false);
   renderBarChart('chart-weekly', weeklyProductivitySeries(filteredClaims), 'week', 'claims');
   renderLineChart('chart-attendance', attendanceTrendSeries(filteredAttendance), 'month', 'attendance', 'warm', true, 100);
+}
+
+// Shows a day-by-day claims breakdown for a single agent — only makes
+// sense once the Agent filter narrows down to one person, since it'd
+// otherwise be a mixed, meaningless list across everyone.
+function renderDailyClaimsTable(claims, selectedAgent, mountId) {
+  const mount = document.getElementById(mountId);
+  if (selectedAgent === 'all') { mount.innerHTML = ''; return; }
+
+  const rows = claims
+    .filter((c) => c.agent === selectedAgent)
+    .sort((a, b) => b.date.localeCompare(a.date)); // most recent first
+
+  const total = rows.reduce((s, r) => s + r.claims, 0);
+  const best = rows.reduce((max, r) => Math.max(max, r.claims), 0);
+
+  const tableRows = rows.map((r) => {
+    const dow = new Date(r.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' });
+    return `
+      <tr class="${r.claims === best && best > 0 ? 'dc-best' : ''}">
+        <td>${r.date}</td>
+        <td>${dow}</td>
+        <td class="num mono">${fmtNum(r.claims)}</td>
+      </tr>`;
+  }).join('');
+
+  mount.innerHTML = `
+    <div class="glass card">
+      <div class="dc-head">
+        <h3>Daily Claims — ${selectedAgent}</h3>
+        <span>${rows.length} day${rows.length !== 1 ? 's' : ''} &middot; ${fmtNum(total)} total</span>
+      </div>
+      <div class="dc-table-wrap">
+        <table class="dc-table">
+          <thead><tr><th>Date</th><th>Day</th><th class="num">Claims</th></tr></thead>
+          <tbody>${tableRows || '<tr><td colspan="3" class="empty-state">No claims for the selected filters.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`;
 }
 
 function renderKpiCards(me) {
