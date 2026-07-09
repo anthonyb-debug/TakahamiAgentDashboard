@@ -156,7 +156,7 @@
   .mobile-nav .nav-item { flex-direction: column; gap: .15rem; font-size: .63rem; padding: .5rem 1rem; width: auto; }
   .mobile-nav .nav-item.active::before { display: none; }
 
-  main { flex: 1; min-width: 0; width: 100%; max-width: 1600px; margin: 0 auto; padding: 1.5rem 1rem 6rem; display: flex; flex-direction: column; gap: 1.5rem; }
+  main { flex: 1; min-width: 0; width: 100%; max-width: 1600px; margin: 0 auto; padding: 1.25rem 1rem 5rem; display: flex; flex-direction: column; gap: 1.1rem; }
   @media (min-width: 640px) { main { padding: 1.5rem; } }
   @media (min-width: 1024px) { main { padding: 2rem; padding-bottom: 2rem; } }
 
@@ -228,7 +228,7 @@
   .kpi-grid .kpi-card:nth-child(5) { animation-delay: .18s; }
 
   /* ============ GOAL PROGRESS ============ */
-  .goal-row { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
+  .goal-row { display: grid; grid-template-columns: 1fr; gap: 1.1rem; }
   @media (min-width: 1024px) { .goal-row { grid-template-columns: 1fr 1fr; } }
   .goal-card { display: flex; flex-direction: column; align-items: center; gap: 1rem; background: linear-gradient(135deg, rgb(var(--primary) / .04), rgb(var(--primary) / .01)); }
   @media (min-width: 640px) { .goal-card { flex-direction: row; justify-content: space-between; } }
@@ -247,11 +247,11 @@
   .ring-sub { font-size: .65rem; color: rgb(var(--muted) / .8); }
 
   /* ============ TWO COLUMN GRID ============ */
-  .two-col { display: grid; grid-template-columns: 1fr; gap: 1.5rem; align-items: start; }
+  .two-col { display: grid; grid-template-columns: 1fr; gap: 1.1rem; align-items: start; }
   @media (min-width: 1280px) { .two-col { grid-template-columns: 2fr 1fr; } }
-  .charts-col { display: flex; flex-direction: column; gap: 1.5rem; }
-  .side-col { display: flex; flex-direction: column; gap: 1.5rem; }
-  .chart-grid-2 { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
+  .charts-col { display: flex; flex-direction: column; gap: 1.1rem; }
+  .side-col { display: flex; flex-direction: column; gap: 1.1rem; }
+  .chart-grid-2 { display: grid; grid-template-columns: 1fr; gap: 1.1rem; }
   @media (min-width: 640px) { .chart-grid-2 { grid-template-columns: 1fr 1fr; } }
   .chart-title { font-size: 1.05rem; font-weight: 700; margin: 0 0 .8rem; letter-spacing: -.01em; }
   .donut-row { display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; }
@@ -264,7 +264,7 @@
   .donut-legend-dot { width: .6rem; height: .6rem; border-radius: 999px; flex-shrink: 0; }
   .donut-legend-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgb(var(--ink)); }
   .donut-legend-value { font-weight: 700; flex-shrink: 0; }
-  .chart-wrap { height: 260px; position: relative; }
+  .chart-wrap { height: 230px; position: relative; }
   #chart-comparison-wrap { height: 220px; }
   @media (min-width: 640px) { #chart-comparison-wrap { height: 260px; } }
 
@@ -429,14 +429,29 @@
       <div id="view-dashboard">
         <div class="filters-bar glass card" id="filters-bar"></div>
         <div id="missing-entries-mount"></div>
-        <div class="kpi-grid" id="kpi-grid" style="margin-top:1.5rem;"></div>
-        <div class="goal-row" style="margin-top:1.5rem;">
+        <div class="kpi-grid" id="kpi-grid" style="margin-top:1.1rem;"></div>
+
+        <div class="glass card" style="margin-top:1.1rem;">
+          <h3 class="chart-title" id="donut-title">Claims by Agent</h3>
+          <div class="donut-row">
+            <div class="donut-wrap">
+              <canvas id="chart-claims-donut"></canvas>
+              <div class="donut-center">
+                <span class="donut-total mono" id="donut-total-value">0</span>
+                <span class="donut-total-label">Total Claims</span>
+              </div>
+            </div>
+            <div class="donut-legend" id="donut-legend-mount"></div>
+          </div>
+        </div>
+
+        <div class="goal-row" style="margin-top:1.1rem;">
           <div id="goal-progress-mount"></div>
           <div id="attendance-goal-mount"></div>
         </div>
-        <div id="daily-claims-mount" style="margin-top:1.5rem;"></div>
+        <div id="daily-claims-mount" style="margin-top:1.1rem;"></div>
 
-        <div class="two-col" style="margin-top:1.5rem;">
+        <div class="two-col" style="margin-top:1.1rem;">
           <div class="charts-col">
             <div class="glass card">
               <h3 class="chart-title">Claims Trend</h3>
@@ -453,25 +468,8 @@
               </div>
             </div>
             <div class="glass card">
-              <h3 class="chart-title">Attendance Trend</h3>
-              <div class="chart-wrap"><canvas id="chart-attendance"></canvas></div>
-            </div>
-            <div class="glass card">
               <h3 class="chart-title">Agent Comparison — Avg Claims / Day</h3>
               <div class="chart-wrap" id="chart-comparison-wrap"><canvas id="chart-comparison"></canvas></div>
-            </div>
-            <div class="glass card">
-              <h3 class="chart-title" id="donut-title">Claims by Agent</h3>
-              <div class="donut-row">
-                <div class="donut-wrap">
-                  <canvas id="chart-claims-donut"></canvas>
-                  <div class="donut-center">
-                    <span class="donut-total mono" id="donut-total-value">0</span>
-                    <span class="donut-total-label">Total Claims</span>
-                  </div>
-                </div>
-                <div class="donut-legend" id="donut-legend-mount"></div>
-              </div>
             </div>
           </div>
           <div class="side-col">
@@ -1330,15 +1328,10 @@ function renderDashboard() {
   renderLineChart('chart-daily-average', dailyAverageSeries(filteredClaims), 'date', 'average', 'accent', false);
   renderBarChart('chart-weekly', weeklyProductivitySeries(filteredClaims), 'week', 'claims');
 
-  // Attendance Trend shows monthly history, so it ignores the Month filter
-  // on purpose — filtering it down to a single month would leave only one
-  // data point, which renders as an effectively empty chart.
-  const { filteredAttendance: attendanceForTrend } = applyFilters(state.claims, state.attendance, { ...filters, month: 'all' });
-  renderLineChart('chart-attendance', attendanceTrendSeries(attendanceForTrend), 'month', 'attendance', 'warm', true, 100);
-
   // Agent comparison is inherently cross-agent, so it ignores the Agent
-  // filter the same way the Attendance Trend ignores Month — otherwise
-  // picking one agent would leave a "comparison" chart with one bar.
+  // filter the same way the Attendance Trend (History view) ignores Month
+  // — otherwise picking one agent would leave a "comparison" chart with
+  // one bar.
   const { filteredClaims: claimsForComparison, filteredAttendance: attendanceForComparison } =
     applyFilters(state.claims, state.attendance, { ...filters, agent: 'all' });
   const comparisonSummaries = computeAgentSummaries(claimsForComparison, attendanceForComparison, state.agents);
