@@ -441,10 +441,12 @@ const SPECIAL_TIERS = [
   { level: 4, min: 43, max: 58 },
   { level: 5, min: 59, max: null },
 ];
-const CHRISTIA_MAPA_NAME = 'christia mapa';
 
+// Matches regardless of name order ("Christia Mapa" or "Mapa, Christia
+// Marie") so it keeps working no matter how the Agent column is formatted.
 function isSpecialAgent(name) {
-  return (name || '').trim().toLowerCase() === CHRISTIA_MAPA_NAME;
+  const normalized = (name || '').toLowerCase();
+  return normalized.includes('christia') && normalized.includes('mapa');
 }
 function getTiersForAgent(name) {
   return isSpecialAgent(name) ? SPECIAL_TIERS : STANDARD_TIERS;
@@ -530,17 +532,47 @@ function toPercent(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+// Handles a Month column written as a full name ("January"), an
+// abbreviation ("Jan"), or already a plain number (1-12).
+function toMonthNumber(v) {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (!s) return 0;
+  if (/^\d+$/.test(s)) return parseInt(s, 10);
+  const abbr = s.slice(0, 3);
+  const idx = MONTH_NAMES.findIndex((m) => m.toLowerCase().startsWith(abbr));
+  return idx >= 0 ? idx + 1 : 0;
+}
+
+// Converts a US-style "M/D/YYYY" date (e.g. "1/2/2026") to ISO "YYYY-MM-DD".
+// Falls back to returning the original string if it's already ISO or in an
+// unrecognized format, so nothing throws on unexpected input.
+function toIsoDate(v) {
+  const s = String(v ?? '').trim();
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return s;
+  const month = m[1].padStart(2, '0');
+  const day = m[2].padStart(2, '0');
+  return `${m[3]}-${month}-${day}`;
+}
+
 async function fetchClaims() {
   const res = await fetch(sheetCsvUrl(CONFIG.CLAIMS_SHEET_NAME), { cache: 'no-store' });
   if (!res.ok) throw new Error('Failed to load Claims sheet (' + res.status + ')');
   const rows = parseCsv(await res.text());
   // Row 0 is the header (Year, Month, Day, Date, Agent, Claims) — skip it.
+  // Note: column C ("Day") in the real sheet is a day-of-week name
+  // ("Thursday"), not a day-of-month number, so the day number is derived
+  // from the parsed Date column instead of read from column C directly.
   return rows.slice(1)
     .filter((r) => r.length >= 6 && r[4])
-    .map((r) => ({
-      year: toNum(r[0]), month: toNum(r[1]), day: toNum(r[2]),
-      date: String(r[3]).trim(), agent: String(r[4]).trim(), claims: toNum(r[5]),
-    }));
+    .map((r) => {
+      const isoDate = toIsoDate(r[3]);
+      const dayOfMonth = /^\d{4}-\d{2}-\d{2}$/.test(isoDate) ? toNum(isoDate.slice(8, 10)) : toNum(r[2]);
+      return {
+        year: toNum(r[0]), month: toMonthNumber(r[1]), day: dayOfMonth,
+        date: isoDate, agent: String(r[4]).trim(), claims: toNum(r[5]),
+      };
+    });
 }
 
 async function fetchAttendance() {
@@ -550,7 +582,7 @@ async function fetchAttendance() {
   return rows.slice(1)
     .filter((r) => r.length >= 4 && r[2])
     .map((r) => ({
-      year: toNum(r[0]), month: toNum(r[1]), agent: String(r[2]).trim(), attendance: toPercent(r[3]),
+      year: toNum(r[0]), month: toMonthNumber(r[1]), agent: String(r[2]).trim(), attendance: toPercent(r[3]),
     }));
 }
 
