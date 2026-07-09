@@ -1052,12 +1052,23 @@ function renderDashboard() {
   });
 
   const { filteredClaims, filteredAttendance } = applyFilters(state.claims, state.attendance, filters);
-  const summaries = computeAgentSummaries(filteredClaims, filteredAttendance, state.agents);
+  // Only summarize agents that match the current filter — passing the
+  // full roster here regardless of the Agent filter was diluting "team"
+  // averages (e.g. dividing by 5 agents even when 4 had no data in the
+  // filtered set at all).
+  const summaryAgentList = filters.agent === 'all' ? state.agents : [filters.agent];
+  const summaries = computeAgentSummaries(filteredClaims, filteredAttendance, summaryAgentList);
   const isManager = state.identity.role === 'manager';
 
-  if (isManager) {
+  if (isManager && filters.agent === 'all') {
     renderTeamKpiCards(summaries);
     document.getElementById('goal-progress-mount').innerHTML = '';
+  } else if (isManager) {
+    // A manager has drilled into one specific agent — show that agent's
+    // own numbers (same card set an agent sees for themselves), not a
+    // team-wide average across everyone else.
+    renderKpiCards(summaries[0]);
+    renderGoalProgress(summaries[0]);
   } else {
     const myAgentName = matchAgentName();
     const me = summaries.find((s) => s.agent === myAgentName) || summaries[0];
