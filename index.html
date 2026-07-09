@@ -522,6 +522,14 @@ function toNum(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+// Handles Attendance values written as "98%" (with a percent sign) as well
+// as plain numbers like 98 — both should end up as the number 98.
+function toPercent(v) {
+  const cleaned = String(v ?? '').trim().replace(/%/g, '');
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
 async function fetchClaims() {
   const res = await fetch(sheetCsvUrl(CONFIG.CLAIMS_SHEET_NAME), { cache: 'no-store' });
   if (!res.ok) throw new Error('Failed to load Claims sheet (' + res.status + ')');
@@ -542,7 +550,7 @@ async function fetchAttendance() {
   return rows.slice(1)
     .filter((r) => r.length >= 4 && r[2])
     .map((r) => ({
-      year: toNum(r[0]), month: toNum(r[1]), agent: String(r[2]).trim(), attendance: toNum(r[3]),
+      year: toNum(r[0]), month: toNum(r[1]), agent: String(r[2]).trim(), attendance: toPercent(r[3]),
     }));
 }
 
@@ -698,6 +706,7 @@ const state = {
   historyFilters: null,
   charts: {},           // Chart.js instances keyed by canvas id
   pollHandle: null,
+  filtersInitialized: false,
 };
 
 /* ==========================================================================
@@ -1092,6 +1101,23 @@ async function loadData(showErrors = true) {
     state.attendance = attendance;
     state.agents = uniqueAgents(claims, attendance);
     state.years = uniqueYears(claims);
+
+    if (!state.filtersInitialized && claims.length > 0) {
+      // Default to the most recent year/month that actually has data, instead
+      // of assuming "today" — sample/test data is rarely dated for the real
+      // current month, and that made the dashboard look empty by default.
+      const latestYear = state.years[0];
+      const claimsInLatestYear = claims.filter((c) => c.year === latestYear);
+      const latestMonth = claimsInLatestYear.length
+        ? Math.max(...claimsInLatestYear.map((c) => c.month))
+        : 'all';
+
+      state.dashFilters.year = latestYear;
+      state.dashFilters.month = latestMonth;
+      state.historyFilters.year = latestYear;
+      state.filtersInitialized = true;
+    }
+
     document.getElementById('global-error').classList.add('hidden');
     if (state.view === 'dashboard') renderDashboard();
     if (state.view === 'history') renderHistory();
