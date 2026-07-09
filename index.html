@@ -10,6 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 
@@ -284,18 +285,14 @@
     <div class="logo-badge">✦</div>
     <div>
       <h1 style="font-size:1.4rem; font-weight:700; margin:0;">Takahami Agent Dashboard</h1>
-      <p style="font-size:.85rem; color:rgb(var(--muted)); margin:.5rem 0 0;">Enter your name exactly as it appears in the "Agent" column of the sheet.</p>
+      <p style="font-size:.85rem; color:rgb(var(--muted)); margin:.5rem 0 0;">Sign in with your company Google account to log and view your productivity.</p>
     </div>
-    <div style="width:100%; display:flex; flex-direction:column; gap:.75rem;">
-      <input type="text" id="name-input" placeholder="e.g. Jane Alvarez"
-        style="width:100%; border-radius:1rem; padding:.75rem 1rem; font-size:.9rem; font-family:inherit; border:1px solid rgb(var(--ink) / var(--glass-border-alpha)); background:rgb(var(--glass-bg) / var(--glass-alpha)); color:rgb(var(--ink));" />
-      <button class="btn btn-primary lg" id="continue-btn">Continue</button>
-    </div>
+    <div id="g_id_signin_container" style="display:flex; justify-content:center; width:100%;"></div>
     <p id="login-error" class="hidden" style="font-size:.75rem; font-weight:600; color:rgb(var(--warm)); margin:0;">
-      Please enter your name to continue.
+      That account isn't set up as an agent on this dashboard. Contact your manager if this seems wrong.
     </p>
     <div style="display:flex; align-items:center; gap:.4rem; font-size:.68rem; color:rgb(var(--muted));">
-      Google sign-in is temporarily disabled — this is just how the dashboard knows which row is yours.
+      🛡️ Access is limited to verified allianceglobalsolutions.com accounts.
     </div>
   </div>
 </div>
@@ -450,7 +447,29 @@ const CONFIG = {
   // claims" — for how to create this. Leave blank to disable the Log
   // Claims feature (the rest of the dashboard works fine without it).
   APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbx_z10T6gJS7J9Pcy2dASp5tXwcASYG_Gb59WRYRpPu628lmRGh4TUZQAmERJVQy3RdBQ/exec',
+
+  // Google OAuth client ID (Google Cloud Console → Credentials).
+  GOOGLE_CLIENT_ID: '519974257344-5u0bjm2sdctrnlq6b1oflsvesgn291fc.apps.googleusercontent.com',
+
+  // Only this Workspace domain may sign in. Personal Gmail accounts are
+  // always rejected, even if somehow listed below.
+  ALLOWED_DOMAIN: 'allianceglobalsolutions.com',
 };
+
+// Verified email → exact Agent string as it appears in the Prod sheet.
+// This is what actually ties a signed-in Google account to a row — the
+// page never lets someone type or pick a different name than this.
+const AGENTS = [
+  { email: 'jaypee@allianceglobalsolutions.com',    agent: 'Ado, Jaypee Dhan' },
+  { email: 'a.hubilla@allianceglobalsolutions.com',  agent: 'Hubilla, Alvin Jhon' },
+  { email: 'christia@allianceglobalsolutions.com',   agent: 'Mapa, Christia Marie' },
+  { email: 'c.patricio@allianceglobalsolutions.com', agent: 'Patricio, Cherabyl' },
+  { email: 'jeffrey@allianceglobalsolutions.com',    agent: 'Regaspi, Jeffrey' },
+];
+function agentForEmail(email) {
+  const match = AGENTS.find((a) => a.email.toLowerCase() === (email || '').toLowerCase());
+  return match ? match.agent : null;
+}
 
 /* ==========================================================================
    ICONS (inline SVG strings, stroke-based, theme-aware via currentColor)
@@ -641,7 +660,7 @@ async function fetchAttendance() {
    Claims cell — it does not create duplicate rows for a day that already
    has a (possibly blank) row, which matches how the sheet is laid out.
    ========================================================================== */
-async function writeClaimsToSheet(year, month, day, agent, claims) {
+async function writeClaimsToSheet(year, month, day, agent, claims, idToken) {
   if (!CONFIG.APPS_SCRIPT_URL) {
     throw new Error('APPS_SCRIPT_URL is not configured yet — see README.md.');
   }
@@ -650,7 +669,8 @@ async function writeClaimsToSheet(year, month, day, agent, claims) {
     + '&month=' + encodeURIComponent(month)
     + '&day=' + encodeURIComponent(day)
     + '&agent=' + encodeURIComponent(agent)
-    + '&claims=' + encodeURIComponent(claims);
+    + '&claims=' + encodeURIComponent(claims)
+    + '&idToken=' + encodeURIComponent(idToken || '');
 
   try {
     const res = await fetch(url, { method: 'GET' });
@@ -658,10 +678,19 @@ async function writeClaimsToSheet(year, month, day, agent, claims) {
     // reading the response can fail even though the write succeeded
     // server-side. We only treat network-level failures as real errors.
     if (res.ok) {
-      try { return await res.json(); } catch (e) { return { ok: true }; }
+      const body = await res.json().catch(() => ({ ok: true }));
+      if (body.ok === false) {
+        const err = new Error(body.error || 'The server rejected this request.');
+        err.code = body.code;
+        throw err;
+      }
+      return body;
     }
     return { ok: true };
   } catch (err) {
+    if (err instanceof Error && err.message && !err.message.startsWith('Failed to fetch')) {
+      throw err; // a real, informative error from the server — surface it
+    }
     // Fire-and-forget fallback: a GET request via an <img> tag still
     // reaches the server even when fetch() is blocked by CORS entirely.
     new Image().src = url;
@@ -827,35 +856,65 @@ const state = {
 };
 
 /* ==========================================================================
-   IDENTITY — Google sign-in is temporarily disabled. Instead, the agent
-   just types their name (matching the "Agent" column) so the dashboard
-   knows which row is theirs. This is NOT an access control mechanism —
-   anyone can type anyone's name. It exists purely so the KPI cards,
-   Goal Progress, and "(you)" highlighting work. Re-enable real Google
-   sign-in later by restoring the OAuth flow documented in README.md.
+   IDENTITY — real Google Sign-In. The signed-in email is looked up in the
+   AGENTS mapping to get the exact Agent string for the sheet; there is no
+   free-text name entry, so an agent can never log claims as someone else
+   from this page. The raw ID token is kept so it can be sent along with
+   write requests — the Apps Script backend independently re-verifies it
+   with Google before writing anything, so this protection holds even if
+   someone bypasses the page and calls the script URL directly.
    ========================================================================== */
-function handleContinue() {
-  const input = document.getElementById('name-input');
-  const name = input.value.trim();
-  if (!name) {
+function decodeJwt(token) {
+  const payload = token.split('.')[1];
+  const json = decodeURIComponent(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))
+    .split('').map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+  return JSON.parse(json);
+}
+
+function handleCredentialResponse(response) {
+  const payload = decodeJwt(response.credential);
+  const email = payload.email || '';
+  const domain = email.split('@')[1]?.toLowerCase();
+
+  if (domain !== CONFIG.ALLOWED_DOMAIN.toLowerCase()) {
+    document.getElementById('login-error').textContent =
+      "That account isn't part of the allianceglobalsolutions.com workspace.";
     document.getElementById('login-error').classList.remove('hidden');
     return;
   }
+
+  const agentName = agentForEmail(email);
+  if (!agentName) {
+    document.getElementById('login-error').textContent =
+      "That account isn't set up as an agent on this dashboard. Contact your manager if this seems wrong.";
+    document.getElementById('login-error').classList.remove('hidden');
+    return;
+  }
+
   document.getElementById('login-error').classList.add('hidden');
-  const identity = { name, email: '', picture: '' };
+  const identity = { name: agentName, email, picture: payload.picture || '', idToken: response.credential };
   localStorage.setItem('takahami_identity', JSON.stringify(identity));
   enterApp(identity);
 }
 
-function initLoginForm() {
-  document.getElementById('continue-btn').addEventListener('click', handleContinue);
-  document.getElementById('name-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') handleContinue();
+function initGoogleSignIn() {
+  if (!window.google || !google.accounts || !google.accounts.id) {
+    setTimeout(initGoogleSignIn, 200);
+    return;
+  }
+  google.accounts.id.initialize({
+    client_id: CONFIG.GOOGLE_CLIENT_ID,
+    callback: handleCredentialResponse,
+    hd: CONFIG.ALLOWED_DOMAIN,
+  });
+  google.accounts.id.renderButton(document.getElementById('g_id_signin_container'), {
+    theme: 'filled_black', size: 'large', shape: 'pill', text: 'continue_with', width: 320,
   });
 }
 
 function signOut() {
   localStorage.removeItem('takahami_identity');
+  if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
   if (state.pollHandle) clearInterval(state.pollHandle);
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
@@ -1227,7 +1286,7 @@ function renderLogClaims() {
     statusEl.textContent = 'Saving to your Google Sheet…';
 
     try {
-      await writeClaimsToSheet(year, month, day, agent, claimsVal);
+      await writeClaimsToSheet(year, month, day, agent, claimsVal, state.identity.idToken);
 
       // Optimistically reflect the change locally so the dashboard updates
       // immediately, without waiting for the next poll.
@@ -1241,7 +1300,12 @@ function renderLogClaims() {
     } catch (err) {
       console.error('Failed to save claims', err);
       statusEl.style.color = cssVarColor('--warm');
-      statusEl.textContent = "Couldn't save — " + err.message;
+      if (err.code === 'AUTH_EXPIRED') {
+        statusEl.textContent = 'Your sign-in has expired. Signing you out — please sign in again and retry.';
+        setTimeout(signOut, 2000);
+      } else {
+        statusEl.textContent = "Couldn't save — " + err.message;
+      }
     } finally {
       submitBtn.disabled = false;
       submitBtn.textContent = 'Save to Sheet';
@@ -1380,7 +1444,7 @@ function enterApp(identity) {
 
 window.addEventListener('DOMContentLoaded', () => {
   initTheme();
-  initLoginForm();
+  initGoogleSignIn();
   const saved = localStorage.getItem('takahami_identity');
   if (saved) {
     try { enterApp(JSON.parse(saved)); } catch (e) { localStorage.removeItem('takahami_identity'); }
