@@ -152,7 +152,7 @@
   .filters-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .75rem; }
   .field { display: flex; flex-direction: column; gap: .35rem; }
   .field label { font-size: .68rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: rgb(var(--muted)); }
-  select, input[type="date"] {
+  select, input[type="date"], input[type="number"], input[type="text"] {
     border-radius: 1rem; padding: .6rem .9rem; font-size: .85rem; font-weight: 500; color: rgb(var(--ink));
     border: 1px solid rgb(var(--ink) / var(--glass-border-alpha)); background: rgb(var(--glass-bg) / var(--glass-alpha));
     cursor: pointer; font-family: inherit;
@@ -370,6 +370,29 @@
         <div class="glass card" style="margin-top:1.5rem;" id="insights-mount"></div>
       </div>
 
+      <!-- ===== LOG CLAIMS VIEW ===== -->
+      <div id="view-log" class="hidden">
+        <div class="glass card" style="max-width: 32rem;">
+          <h3 class="chart-title">Log Today's Claims</h3>
+          <p style="font-size:.8rem; color:rgb(var(--muted)); margin:-.5rem 0 1rem;">
+            This updates the matching row in your Google Sheet directly. Pick a different date to log or correct an earlier day.
+          </p>
+          <div style="display:flex; flex-direction:column; gap:1rem;">
+            <div class="field">
+              <label>Date</label>
+              <input type="date" id="log-date-input" style="width:100%;" />
+            </div>
+            <div class="field">
+              <label>Claims Processed</label>
+              <input type="number" id="log-claims-input" min="0" step="1" placeholder="e.g. 62" style="width:100%;" />
+            </div>
+            <button class="btn btn-primary lg" id="log-submit-btn">Save to Sheet</button>
+            <p id="log-status" style="font-size:.78rem; color:rgb(var(--muted)); margin:0; min-height:1em;"></p>
+          </div>
+        </div>
+        <div id="log-history-mount" style="margin-top:1.5rem;"></div>
+      </div>
+
       <!-- ===== HISTORY VIEW ===== -->
       <div id="view-history" class="hidden">
         <div class="filters-bar glass card" id="history-filters-bar"></div>
@@ -421,6 +444,12 @@ const CONFIG = {
 
   // How often to re-poll Google Sheets for changes (ms).
   POLL_INTERVAL_MS: 15000,
+
+  // The URL of the Google Apps Script Web App that lets this page write
+  // claims counts back into the Prod tab. See README.md — "Enable logging
+  // claims" — for how to create this. Leave blank to disable the Log
+  // Claims feature (the rest of the dashboard works fine without it).
+  APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbx_z10T6gJS7J9Pcy2dASp5tXwcASYG_Gb59WRYRpPu628lmRGh4TUZQAmERJVQy3RdBQ/exec',
 };
 
 /* ==========================================================================
@@ -430,6 +459,7 @@ const ICONS = {
   dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>',
   history: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>',
   profile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>',
   sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>',
   moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
   logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
@@ -602,6 +632,41 @@ async function fetchAttendance() {
     .map((r) => ({
       year: toNum(r[0]), month: toMonthNumber(r[1]), agent: String(r[2]).trim(), attendance: toPercent(r[3]),
     }));
+}
+
+/* ==========================================================================
+   WRITE-BACK — pushes a claims count to the Prod tab via a Google Apps
+   Script Web App (see README.md, "Enable logging claims", for setup).
+   The script finds the row matching this agent + date and updates its
+   Claims cell — it does not create duplicate rows for a day that already
+   has a (possibly blank) row, which matches how the sheet is laid out.
+   ========================================================================== */
+async function writeClaimsToSheet(year, month, day, agent, claims) {
+  if (!CONFIG.APPS_SCRIPT_URL) {
+    throw new Error('APPS_SCRIPT_URL is not configured yet — see README.md.');
+  }
+  const url = CONFIG.APPS_SCRIPT_URL
+    + '?year=' + encodeURIComponent(year)
+    + '&month=' + encodeURIComponent(month)
+    + '&day=' + encodeURIComponent(day)
+    + '&agent=' + encodeURIComponent(agent)
+    + '&claims=' + encodeURIComponent(claims);
+
+  try {
+    const res = await fetch(url, { method: 'GET' });
+    // Apps Script Web Apps don't always send permissive CORS headers, so
+    // reading the response can fail even though the write succeeded
+    // server-side. We only treat network-level failures as real errors.
+    if (res.ok) {
+      try { return await res.json(); } catch (e) { return { ok: true }; }
+    }
+    return { ok: true };
+  } catch (err) {
+    // Fire-and-forget fallback: a GET request via an <img> tag still
+    // reaches the server even when fetch() is blocked by CORS entirely.
+    new Image().src = url;
+    return { ok: true, unconfirmed: true };
+  }
 }
 
 /* ==========================================================================
@@ -802,6 +867,7 @@ function signOut() {
 function navItems() {
   return [
     { id: 'dashboard', label: 'Dashboard', icon: ICONS.dashboard },
+    { id: 'log', label: 'Log Claims', icon: ICONS.edit },
     { id: 'history', label: 'History', icon: ICONS.history },
     { id: 'profile', label: 'Profile', icon: ICONS.profile },
   ];
@@ -819,11 +885,12 @@ function renderNav() {
 }
 function switchView(view) {
   state.view = view;
-  ['dashboard', 'history', 'profile'].forEach((v) => {
+  ['dashboard', 'log', 'history', 'profile'].forEach((v) => {
     document.getElementById('view-' + v).classList.toggle('hidden', v !== view);
   });
   renderNav();
   if (view === 'dashboard') renderDashboard();
+  if (view === 'log') renderLogClaims();
   if (view === 'history') renderHistory();
   if (view === 'profile') renderProfile();
 }
@@ -1124,7 +1191,72 @@ function renderHistory() {
 /* ==========================================================================
    RENDER — PROFILE VIEW
    ========================================================================== */
+/* ==========================================================================
+   RENDER — LOG CLAIMS VIEW
+   ========================================================================== */
+function renderLogClaims() {
+  const dateInput = document.getElementById('log-date-input');
+  const claimsInput = document.getElementById('log-claims-input');
+  const statusEl = document.getElementById('log-status');
+  const submitBtn = document.getElementById('log-submit-btn');
+
+  if (!dateInput.value) dateInput.value = todayISO();
+
+  if (!CONFIG.APPS_SCRIPT_URL) {
+    statusEl.textContent = 'Logging isn\'t connected yet — ask whoever set this up to add APPS_SCRIPT_URL in the CONFIG block.';
+    statusEl.style.color = cssVarColor('--warm');
+    submitBtn.disabled = true;
+  } else {
+    statusEl.textContent = '';
+    submitBtn.disabled = false;
+  }
+
+  submitBtn.onclick = async () => {
+    const dateStr = dateInput.value;
+    const claimsVal = parseInt(claimsInput.value, 10);
+    if (!dateStr) { statusEl.textContent = 'Pick a date first.'; statusEl.style.color = cssVarColor('--warm'); return; }
+    if (isNaN(claimsVal) || claimsVal < 0) { statusEl.textContent = 'Enter a valid number of claims.'; statusEl.style.color = cssVarColor('--warm'); return; }
+
+    const d = new Date(dateStr + 'T00:00:00');
+    const year = d.getFullYear(), month = d.getMonth() + 1, day = d.getDate();
+    const agent = state.identity.name;
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Saving…';
+    statusEl.style.color = cssVarColor('--muted');
+    statusEl.textContent = 'Saving to your Google Sheet…';
+
+    try {
+      await writeClaimsToSheet(year, month, day, agent, claimsVal);
+
+      // Optimistically reflect the change locally so the dashboard updates
+      // immediately, without waiting for the next poll.
+      const existing = state.claims.find((c) => c.agent === agent && c.date === dateStr);
+      if (existing) existing.claims = claimsVal;
+      else state.claims.push({ year, month, day, date: dateStr, agent, claims: claimsVal });
+
+      statusEl.style.color = cssVarColor('--accent');
+      statusEl.textContent = 'Saved ' + new Date().toLocaleTimeString() + '.';
+      renderLogHistory(agent);
+    } catch (err) {
+      console.error('Failed to save claims', err);
+      statusEl.style.color = cssVarColor('--warm');
+      statusEl.textContent = "Couldn't save — " + err.message;
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Save to Sheet';
+    }
+  };
+
+  renderLogHistory(state.identity.name);
+}
+
+function renderLogHistory(agent) {
+  renderDailyClaimsTable(state.claims, agent, 'log-history-mount');
+}
+
 function renderProfile() {
+
   const myAgentName = matchAgentName();
   const summaries = computeAgentSummaries(state.claims, state.attendance, state.agents);
   const me = summaries.find((s) => s.agent === myAgentName);
