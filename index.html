@@ -76,7 +76,7 @@
   .glass-hover { transition: transform .22s cubic-bezier(.4,0,.2,1), box-shadow .22s ease, border-color .22s ease; }
   .glass-hover:hover { transform: translateY(-2px); box-shadow: 0 1px 2px rgb(var(--ink) / .04), 0 20px 40px -10px rgb(var(--ink) / .12); border-color: rgb(var(--primary) / .3); }
 
-  .card { border-radius: 1.25rem; padding: 1.5rem; animation: fade-up var(--card-anim-duration, .45s) cubic-bezier(.16,1,.3,1) both; }
+  .card { border-radius: 1.25rem; padding: 1.15rem; animation: fade-up var(--card-anim-duration, .45s) cubic-bezier(.16,1,.3,1) both; }
 
   @keyframes fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -204,7 +204,7 @@
   .kpi-grid { display: grid; grid-template-columns: repeat(1, 1fr); gap: 1rem; }
   @media (min-width: 640px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
   @media (min-width: 1280px) { .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); } }
-  .kpi-card { display: flex; flex-direction: column; gap: 1rem; }
+  .kpi-card { display: flex; flex-direction: column; gap: .75rem; }
   .kpi-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; }
   .kpi-icon { width: 2.35rem; height: 2.35rem; border-radius: .8rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .kpi-icon svg { width: 1.05rem; height: 1.05rem; }
@@ -230,7 +230,7 @@
   /* ============ GOAL PROGRESS ============ */
   .goal-row { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
   @media (min-width: 1024px) { .goal-row { grid-template-columns: 1fr 1fr; } }
-  .goal-card { display: flex; flex-direction: column; align-items: center; gap: 1.25rem; background: linear-gradient(135deg, rgb(var(--primary) / .04), rgb(var(--primary) / .01)); }
+  .goal-card { display: flex; flex-direction: column; align-items: center; gap: 1rem; background: linear-gradient(135deg, rgb(var(--primary) / .04), rgb(var(--primary) / .01)); }
   @media (min-width: 640px) { .goal-card { flex-direction: row; justify-content: space-between; } }
   .goal-left { display: flex; flex-direction: column; gap: .6rem; text-align: center; }
   @media (min-width: 640px) { .goal-left { text-align: left; } }
@@ -253,13 +253,23 @@
   .side-col { display: flex; flex-direction: column; gap: 1.5rem; }
   .chart-grid-2 { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
   @media (min-width: 640px) { .chart-grid-2 { grid-template-columns: 1fr 1fr; } }
-  .chart-title { font-size: 1.05rem; font-weight: 700; margin: 0 0 1.1rem; letter-spacing: -.01em; }
+  .chart-title { font-size: 1.05rem; font-weight: 700; margin: 0 0 .8rem; letter-spacing: -.01em; }
+  .donut-row { display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; }
+  .donut-wrap { position: relative; width: 150px; height: 150px; flex-shrink: 0; margin: 0 auto; }
+  .donut-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  .donut-total { font-size: 1.3rem; font-weight: 700; letter-spacing: -.02em; }
+  .donut-total-label { font-size: .65rem; color: rgb(var(--muted)); margin-top: .15rem; }
+  .donut-legend { flex: 1; min-width: 160px; max-height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: .5rem; }
+  .donut-legend-row { display: flex; align-items: center; gap: .5rem; font-size: .78rem; }
+  .donut-legend-dot { width: .6rem; height: .6rem; border-radius: 999px; flex-shrink: 0; }
+  .donut-legend-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgb(var(--ink)); }
+  .donut-legend-value { font-weight: 700; flex-shrink: 0; }
   .chart-wrap { height: 260px; position: relative; }
   #chart-comparison-wrap { height: 220px; }
   @media (min-width: 640px) { #chart-comparison-wrap { height: 260px; } }
 
   /* ============ LEADERBOARD ============ */
-  .lb-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .9rem; }
+  .lb-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .65rem; }
   .lb-head h3 { margin: 0; font-size: 1.05rem; font-weight: 700; letter-spacing: -.01em; }
   .lb-head span { font-size: .68rem; color: rgb(var(--muted)); }
   .lb-row { display: flex; align-items: center; gap: .9rem; padding: .7rem 0; border-bottom: 1px solid rgb(var(--border) / .7); transition: background .15s ease; }
@@ -282,7 +292,7 @@
   .empty-state { text-align: center; padding: 2rem 0; font-size: .85rem; color: rgb(var(--muted)); }
 
   /* ============ DAILY CLAIMS TABLE ============ */
-  .dc-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .9rem; flex-wrap: wrap; gap: .5rem; }
+  .dc-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .65rem; flex-wrap: wrap; gap: .5rem; }
   .dc-head h3 { margin: 0; font-size: 1.05rem; font-weight: 700; letter-spacing: -.01em; }
   .dc-head span { font-size: .68rem; color: rgb(var(--muted)); }
   .dc-table-wrap { max-height: 320px; overflow-y: auto; border-radius: .9rem; border: 1px solid rgb(var(--border) / .7); }
@@ -302,7 +312,7 @@
   table.dc-table tfoot td { padding: .6rem .8rem; font-weight: 700; border-top: 1px solid rgb(var(--border)); }
 
   /* ============ INSIGHTS ============ */
-  .insights-grid { display: grid; grid-template-columns: 1fr; gap: 1.1rem; }
+  .insights-grid { display: grid; grid-template-columns: 1fr; gap: .9rem; }
   @media (min-width: 640px) { .insights-grid { grid-template-columns: 1fr 1fr; } }
   @media (min-width: 1024px) { .insights-grid { grid-template-columns: 1fr 1fr 1fr; } }
   .insight-item { display: flex; align-items: flex-start; gap: .75rem; }
@@ -449,6 +459,19 @@
             <div class="glass card">
               <h3 class="chart-title">Agent Comparison — Avg Claims / Day</h3>
               <div class="chart-wrap" id="chart-comparison-wrap"><canvas id="chart-comparison"></canvas></div>
+            </div>
+            <div class="glass card">
+              <h3 class="chart-title" id="donut-title">Claims by Agent</h3>
+              <div class="donut-row">
+                <div class="donut-wrap">
+                  <canvas id="chart-claims-donut"></canvas>
+                  <div class="donut-center">
+                    <span class="donut-total mono" id="donut-total-value">0</span>
+                    <span class="donut-total-label">Total Claims</span>
+                  </div>
+                </div>
+                <div class="donut-legend" id="donut-legend-mount"></div>
+              </div>
             </div>
           </div>
           <div class="side-col">
@@ -1320,6 +1343,7 @@ function renderDashboard() {
     applyFilters(state.claims, state.attendance, { ...filters, agent: 'all' });
   const comparisonSummaries = computeAgentSummaries(claimsForComparison, attendanceForComparison, state.agents);
   renderAgentComparisonChart(comparisonSummaries);
+  renderClaimsDonut(comparisonSummaries, filters);
 }
 
 // Shows a day-by-day claims breakdown for a single agent — only makes
@@ -1724,6 +1748,59 @@ function renderAgentComparisonChart(summaries) {
       scales: {
         x: { grid: { color: cssVarColor('--border') }, ticks: { color: cssVarColor('--muted'), font: { size: 10 } } },
         y: { grid: { display: false }, ticks: { color: cssVarColor('--muted'), font: { size: 11 } } },
+      },
+    },
+  });
+}
+
+// A fixed, varied palette (not tied to the theme's 3-4 semantic colors)
+// so each agent gets a visually distinct slice regardless of how many
+// agents there are.
+const DONUT_COLORS = ['#2563EB', '#10B981', '#7C3AED', '#D97706', '#DB2777', '#0EA5E9', '#84CC16', '#F43F5E', '#6366F1', '#14B8A6'];
+
+function renderClaimsDonut(summaries, filters) {
+  const canvasId = 'chart-claims-donut';
+  const sorted = [...summaries].filter((s) => s.mtdClaims > 0).sort((a, b) => b.mtdClaims - a.mtdClaims);
+  const labels = sorted.map((s) => s.agent);
+  const values = sorted.map((s) => s.mtdClaims);
+  const colors = sorted.map((_, i) => DONUT_COLORS[i % DONUT_COLORS.length]);
+  const total = values.reduce((s, v) => s + v, 0);
+
+  const titleEl = document.getElementById('donut-title');
+  if (titleEl && filters) {
+    const periodLabel = filters.month === 'all' ? filters.year : `${MONTH_NAMES[filters.month - 1]} ${filters.year}`;
+    titleEl.textContent = `Claims by Agent — ${periodLabel}`;
+  }
+  document.getElementById('donut-total-value').textContent = fmtNum(total);
+
+  const legendMount = document.getElementById('donut-legend-mount');
+  legendMount.innerHTML = sorted.map((s, i) => `
+    <div class="donut-legend-row">
+      <span class="donut-legend-dot" style="background:${colors[i]};"></span>
+      <span class="donut-legend-name">${s.agent}</span>
+      <span class="donut-legend-value mono">${fmtNum(s.mtdClaims)}</span>
+    </div>`).join('') || '<p class="empty-state" style="padding:0;">No claims for the selected filters.</p>';
+
+  const existing = state.charts[canvasId];
+  if (existing) {
+    existing.data.labels = labels;
+    existing.data.datasets[0].data = values;
+    existing.data.datasets[0].backgroundColor = colors;
+    existing.update(CHART_ANIMATION_ENABLED ? undefined : 'none');
+    return;
+  }
+
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  state.charts[canvasId] = new Chart(ctx, {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: cssVarColor('--surface'), hoverOffset: 4 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: CHART_ANIMATION_ENABLED ? undefined : false,
+      cutout: '72%',
+      plugins: {
+        legend: { display: false },
+        tooltip: { backgroundColor: cssVarColor('--surface'), titleColor: cssVarColor('--ink'), bodyColor: cssVarColor('--ink'), borderColor: cssVarColor('--border'), borderWidth: 1 },
       },
     },
   });
