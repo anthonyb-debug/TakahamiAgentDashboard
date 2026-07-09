@@ -212,9 +212,6 @@
   .kpi-value { font-size: 1.85rem; font-weight: 700; letter-spacing: -.03em; margin: 0; }
   .kpi-sub { font-size: .74rem; color: rgb(var(--muted)); margin-top: .35rem; }
   .kpi-trend { font-size: .72rem; font-weight: 700; margin-top: .35rem; }
-  .kpi-donut-mini-wrap { position: relative; width: 68px; height: 68px; margin: .1rem auto 0; }
-  .kpi-donut-mini-center { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
-  .kpi-donut-mini-total { font-size: .8rem; font-weight: 700; }
   .trend { display: flex; align-items: center; gap: .25rem; font-size: .75rem; font-weight: 600; }
   .trend svg { width: .9rem; height: .9rem; }
 
@@ -1382,22 +1379,7 @@ function renderDailyClaimsTable(claims, selectedAgent, mountId) {
 }
 
 function kpiCardsHtml(cards) {
-  return cards.map((c) => {
-    if (c.type === 'donut') {
-      return `
-    <div class="glass glass-hover card kpi-card">
-      <div class="kpi-top">
-        <p class="kpi-label">${c.label}</p>
-      </div>
-      <div class="kpi-donut-mini-wrap">
-        <canvas id="${c.canvasId}"></canvas>
-        <div class="kpi-donut-mini-center">
-          <span class="kpi-donut-mini-total mono" id="${c.totalElId}">0</span>
-        </div>
-      </div>
-    </div>`;
-    }
-    return `
+  return cards.map((c) => `
     <div class="glass glass-hover card kpi-card">
       <div class="kpi-top">
         <p class="kpi-label">${c.label}</p>
@@ -1408,8 +1390,7 @@ function kpiCardsHtml(cards) {
         ${c.sub ? `<p class="kpi-sub">${c.sub}</p>` : ''}
         ${c.trendHtml || ''}
       </div>
-    </div>`;
-  }).join('');
+    </div>`).join('');
 }
 
 // Percentage change, or null when there's nothing sensible to compare
@@ -1511,6 +1492,7 @@ function renderKpiCards(me, filters) {
 function renderTeamKpiCards(summaries, filters) {
   const mount = document.getElementById('kpi-grid');
   if (!summaries.length) { mount.innerHTML = ''; return; }
+  const todayClaims = summaries.reduce((s, a) => s + a.todayClaims, 0);
   const mtdClaims = summaries.reduce((s, a) => s + a.mtdClaims, 0);
   const avgClaimsPerDay = summaries.reduce((s, a) => s + a.avgClaimsPerDay, 0) / summaries.length;
   const attendancePct = summaries.reduce((s, a) => s + a.attendancePct, 0) / summaries.length;
@@ -1520,13 +1502,12 @@ function renderTeamKpiCards(summaries, filters) {
     : null;
 
   const cards = [
-    { type: 'donut', label: 'Claims by Agent', canvasId: 'kpi-mini-donut', totalElId: 'kpi-mini-donut-total' },
+    { icon: ICONS.check, label: "Team Today's Claims", value: fmtNum(todayClaims), accent: 'primary' },
     { icon: ICONS.calendarRange, label: 'Team Month-to-Date', value: fmtNum(mtdClaims), accent: 'accent', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.gauge, label: 'Team Avg Claims / Day', value: fmtNum(avgClaimsPerDay, 1), accent: 'violet', trendHtml: trend ? trendHtml(trend.avgClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.calendarCheck, label: 'Team Attendance', value: fmtPct(attendancePct, 1), accent: 'warm', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
   ];
   mount.innerHTML = kpiCardsHtml(cards);
-  renderMiniDonut('kpi-mini-donut', 'kpi-mini-donut-total', summaries);
 }
 
 function renderGoalProgress(me) {
@@ -1769,38 +1750,6 @@ function renderAgentComparisonChart(summaries) {
 // so each agent gets a visually distinct slice regardless of how many
 // agents there are.
 const DONUT_COLORS = ['#2563EB', '#10B981', '#7C3AED', '#D97706', '#DB2777', '#0EA5E9', '#84CC16', '#F43F5E', '#6366F1', '#14B8A6'];
-
-// Unlike the other charts, this one's canvas lives inside #kpi-grid, which
-// gets its innerHTML fully replaced on every render — so the canvas
-// element itself is a fresh node each time, and any previous Chart.js
-// instance would be pointing at a now-detached one. Always destroy and
-// recreate here rather than trying to update in place.
-function renderMiniDonut(canvasId, totalElId, summaries) {
-  destroyChart(canvasId);
-  const sorted = [...summaries].filter((s) => s.mtdClaims > 0).sort((a, b) => b.mtdClaims - a.mtdClaims);
-  const values = sorted.map((s) => s.mtdClaims);
-  const colors = sorted.map((_, i) => DONUT_COLORS[i % DONUT_COLORS.length]);
-  const total = values.reduce((s, v) => s + v, 0);
-
-  const totalEl = document.getElementById(totalElId);
-  if (totalEl) totalEl.textContent = fmtNum(total);
-
-  const ctx = document.getElementById(canvasId);
-  if (!ctx) return;
-  state.charts[canvasId] = new Chart(ctx, {
-    type: 'doughnut',
-    data: { labels: sorted.map((s) => s.agent), datasets: [{ data: values, backgroundColor: colors, borderWidth: 1, borderColor: cssVarColor('--surface') }] },
-    options: {
-      responsive: true, maintainAspectRatio: false, animation: false,
-      cutout: '65%',
-      plugins: {
-        legend: { display: false },
-        tooltip: { backgroundColor: cssVarColor('--surface'), titleColor: cssVarColor('--ink'), bodyColor: cssVarColor('--ink'), borderColor: cssVarColor('--border'), borderWidth: 1 },
-      },
-    },
-  });
-}
-
 
 function renderClaimsDonut(summaries, filters) {
   const canvasId = 'chart-claims-donut';
