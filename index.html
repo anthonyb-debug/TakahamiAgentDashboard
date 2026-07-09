@@ -203,7 +203,7 @@
   /* ============ KPI GRID ============ */
   .kpi-grid { display: grid; grid-template-columns: repeat(1, 1fr); gap: 1rem; }
   @media (min-width: 640px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
-  @media (min-width: 1280px) { .kpi-grid { grid-template-columns: repeat(5, 1fr); } }
+  @media (min-width: 1280px) { .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); } }
   .kpi-card { display: flex; flex-direction: column; gap: 1rem; }
   .kpi-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; }
   .kpi-icon { width: 2.35rem; height: 2.35rem; border-radius: .8rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -247,9 +247,10 @@
   .ring-sub { font-size: .65rem; color: rgb(var(--muted) / .8); }
 
   /* ============ TWO COLUMN GRID ============ */
-  .two-col { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
+  .two-col { display: grid; grid-template-columns: 1fr; gap: 1.5rem; align-items: start; }
   @media (min-width: 1280px) { .two-col { grid-template-columns: 2fr 1fr; } }
   .charts-col { display: flex; flex-direction: column; gap: 1.5rem; }
+  .side-col { display: flex; flex-direction: column; gap: 1.5rem; }
   .chart-grid-2 { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
   @media (min-width: 640px) { .chart-grid-2 { grid-template-columns: 1fr 1fr; } }
   .chart-title { font-size: 1.05rem; font-weight: 700; margin: 0 0 1.1rem; letter-spacing: -.01em; }
@@ -450,10 +451,11 @@
               <div class="chart-wrap" id="chart-comparison-wrap"><canvas id="chart-comparison"></canvas></div>
             </div>
           </div>
-          <div class="glass card" id="leaderboard-mount"></div>
+          <div class="side-col">
+            <div class="glass card" id="leaderboard-mount"></div>
+            <div class="glass card" id="insights-mount"></div>
+          </div>
         </div>
-
-        <div class="glass card" style="margin-top:1.5rem;" id="insights-mount"></div>
       </div>
 
       <!-- ===== LOG CLAIMS VIEW ===== -->
@@ -1477,7 +1479,6 @@ function renderTeamKpiCards(summaries, filters) {
   const mtdClaims = summaries.reduce((s, a) => s + a.mtdClaims, 0);
   const avgClaimsPerDay = summaries.reduce((s, a) => s + a.avgClaimsPerDay, 0) / summaries.length;
   const attendancePct = summaries.reduce((s, a) => s + a.attendancePct, 0) / summaries.length;
-  const topAgent = summaries[0]; // already sorted by rank
 
   const trend = filters && filters.month !== 'all'
     ? computeTeamMonthOverMonthTrend(filters.year, filters.month)
@@ -1488,7 +1489,6 @@ function renderTeamKpiCards(summaries, filters) {
     { icon: ICONS.calendarRange, label: 'Team Month-to-Date', value: fmtNum(mtdClaims), accent: 'accent', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.gauge, label: 'Team Avg Claims / Day', value: fmtNum(avgClaimsPerDay, 1), accent: 'violet', trendHtml: trend ? trendHtml(trend.avgClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.calendarCheck, label: 'Team Attendance', value: fmtPct(attendancePct, 1), accent: 'warm', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
-    { icon: ICONS.award, label: 'Top Agent', value: topAgent.agent, sub: topAgent.kpi.tierLabel, accent: 'rose' },
   ];
   mount.innerHTML = kpiCardsHtml(cards);
 }
