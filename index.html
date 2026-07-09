@@ -100,6 +100,8 @@
   .topnav {
     background: linear-gradient(100deg, #0B1B3F 0%, #142A5C 55%, rgb(var(--primary-deep)) 100%);
     padding: .85rem 1rem;
+    position: sticky; top: 0; z-index: 50;
+    box-shadow: 0 4px 20px -8px rgb(0 0 0 / .25);
   }
   .topnav-inner {
     max-width: 1600px; margin: 0 auto; display: flex; align-items: center; gap: 1.25rem;
@@ -209,6 +211,7 @@
   .kpi-label { font-size: .66rem; font-weight: 700; color: rgb(var(--muted)); margin: .3rem 0 0; text-transform: uppercase; letter-spacing: .05em; line-height: 1.3; }
   .kpi-value { font-size: 1.85rem; font-weight: 700; letter-spacing: -.03em; margin: 0; }
   .kpi-sub { font-size: .74rem; color: rgb(var(--muted)); margin-top: .35rem; }
+  .kpi-trend { font-size: .72rem; font-weight: 700; margin-top: .35rem; }
   .trend { display: flex; align-items: center; gap: .25rem; font-size: .75rem; font-weight: 600; }
   .trend svg { width: .9rem; height: .9rem; }
 
@@ -225,6 +228,8 @@
   .kpi-grid .kpi-card:nth-child(5) { animation-delay: .18s; }
 
   /* ============ GOAL PROGRESS ============ */
+  .goal-row { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
+  @media (min-width: 1024px) { .goal-row { grid-template-columns: 1fr 1fr; } }
   .goal-card { display: flex; flex-direction: column; align-items: center; gap: 1.25rem; background: linear-gradient(135deg, rgb(var(--primary) / .04), rgb(var(--primary) / .01)); }
   @media (min-width: 640px) { .goal-card { flex-direction: row; justify-content: space-between; } }
   .goal-left { display: flex; flex-direction: column; gap: .6rem; text-align: center; }
@@ -249,6 +254,8 @@
   @media (min-width: 640px) { .chart-grid-2 { grid-template-columns: 1fr 1fr; } }
   .chart-title { font-size: 1.05rem; font-weight: 700; margin: 0 0 1.1rem; letter-spacing: -.01em; }
   .chart-wrap { height: 260px; position: relative; }
+  #chart-comparison-wrap { height: 220px; }
+  @media (min-width: 640px) { #chart-comparison-wrap { height: 260px; } }
 
   /* ============ LEADERBOARD ============ */
   .lb-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .9rem; }
@@ -313,13 +320,25 @@
   .pill-primary { background: rgb(var(--primary) / .1); color: rgb(var(--primary)); }
   .pill-accent { background: rgb(var(--accent) / .1); color: rgb(var(--accent)); }
   .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-  @media (min-width: 1024px) { .stat-grid { grid-template-columns: repeat(4, 1fr); } }
+  @media (min-width: 1024px) { .stat-grid { grid-template-columns: repeat(5, 1fr); } }
   .stat-label { font-size: .7rem; font-weight: 500; color: rgb(var(--muted)); margin: 0; }
   .stat-value { font-size: 1.35rem; font-weight: 700; margin: .3rem 0 0; letter-spacing: -.02em; }
 
 
   .hidden { display: none !important; }
   .error-banner { border: 1px solid rgb(var(--warm) / .4); background: rgb(var(--warm) / .1); border-radius: 1rem; padding: 1rem; font-size: .85rem; }
+  .notice-banner {
+    display: flex; align-items: center; gap: .75rem; border: 1px solid rgb(var(--warm) / .35); background: rgb(var(--warm) / .08);
+    border-radius: 1rem; padding: .85rem 1.1rem; font-size: .82rem; color: rgb(var(--ink)); flex-wrap: wrap;
+  }
+  .notice-banner .notice-icon { width: 2rem; height: 2rem; border-radius: .7rem; background: rgb(var(--warm) / .15); color: rgb(var(--warm)); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .notice-banner .notice-icon svg { width: .95rem; height: .95rem; }
+  .notice-banner strong { font-weight: 700; }
+  .notice-banner .notice-action {
+    margin-left: auto; font-weight: 700; color: rgb(var(--primary)); cursor: pointer; background: none; border: none;
+    font-size: .8rem; padding: 0; white-space: nowrap;
+  }
+  .notice-banner .notice-action:hover { text-decoration: underline; }
   .loading-text { text-align: center; font-size: .85rem; color: rgb(var(--muted)); padding: 1rem 0; }
   .shimmer { background: linear-gradient(90deg, rgb(var(--ink)/.04) 25%, rgb(var(--ink)/.08) 37%, rgb(var(--ink)/.04) 63%); background-size: 400% 100%; animation: shimmer 1.4s ease infinite; border-radius: 1rem; }
   @keyframes shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
@@ -398,8 +417,12 @@
       <!-- ===== DASHBOARD VIEW ===== -->
       <div id="view-dashboard">
         <div class="filters-bar glass card" id="filters-bar"></div>
+        <div id="missing-entries-mount"></div>
         <div class="kpi-grid" id="kpi-grid" style="margin-top:1.5rem;"></div>
-        <div id="goal-progress-mount" style="margin-top:1.5rem;"></div>
+        <div class="goal-row" style="margin-top:1.5rem;">
+          <div id="goal-progress-mount"></div>
+          <div id="attendance-goal-mount"></div>
+        </div>
         <div id="daily-claims-mount" style="margin-top:1.5rem;"></div>
 
         <div class="two-col" style="margin-top:1.5rem;">
@@ -421,6 +444,10 @@
             <div class="glass card">
               <h3 class="chart-title">Attendance Trend</h3>
               <div class="chart-wrap"><canvas id="chart-attendance"></canvas></div>
+            </div>
+            <div class="glass card">
+              <h3 class="chart-title">Agent Comparison — Avg Claims / Day</h3>
+              <div class="chart-wrap" id="chart-comparison-wrap"><canvas id="chart-comparison"></canvas></div>
             </div>
           </div>
           <div class="glass card" id="leaderboard-mount"></div>
@@ -490,6 +517,7 @@
             <div style="display:flex; gap:.5rem;">
               <select id="profile-log-month" style="width:auto;"></select>
               <select id="profile-log-year" style="width:auto;"></select>
+              <button class="btn btn-glass glass glass-hover" id="profile-log-export-btn" style="height:auto; padding:.5rem .8rem;"></button>
             </div>
           </div>
           <div id="profile-claims-log-mount"></div>
@@ -530,6 +558,10 @@ const CONFIG = {
   // Only this Workspace domain may sign in. Personal Gmail accounts are
   // always rejected, even if somehow listed below.
   ALLOWED_DOMAIN: 'allianceglobalsolutions.com',
+
+  // Monthly attendance target agents are measured against on the new
+  // Attendance Goal card. Adjust to match whatever your actual policy is.
+  ATTENDANCE_TARGET_PCT: 95,
 };
 
 // Verified email → exact Agent string as it appears in the Prod sheet.
@@ -564,6 +596,7 @@ function managerForEmail(email) {
    ICONS (inline SVG strings, stroke-based, theme-aware via currentColor)
    ========================================================================== */
 const ICONS = {
+  alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
   dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>',
   history: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>',
   profile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
@@ -606,6 +639,35 @@ function isSpecialAgent(name) {
 }
 function getTiersForAgent(name) {
   return isSpecialAgent(name) ? SPECIAL_TIERS : STANDARD_TIERS;
+}
+
+// Consecutive work days (weekends never break it) where the agent's daily
+// claims met or beat their own KPI-4 threshold. Today only counts if it's
+// already been logged and clears the bar — an unlogged "today" shouldn't
+// zero out a real streak just because the day isn't over yet.
+function computeKpiStreak(claims, agentName, maxLookback = 60) {
+  const claimsByDate = new Map();
+  claims.filter((c) => c.agent === agentName).forEach((c) => claimsByDate.set(c.date, c.claims));
+  const threshold = getTiersForAgent(agentName).find((t) => t.level === 4).min;
+  const meetsThreshold = (iso) => { const v = claimsByDate.get(iso); return v !== undefined && v >= threshold; };
+
+  let streak = 0;
+  const cursor = new Date();
+  const todayIso = toLocalIso(cursor);
+  const todayDow = cursor.getDay();
+  if (todayDow !== 0 && todayDow !== 6 && meetsThreshold(todayIso)) streak++;
+
+  cursor.setDate(cursor.getDate() - 1);
+  for (let i = 0; i < maxLookback; i++) {
+    const dow = cursor.getDay();
+    if (dow !== 0 && dow !== 6) {
+      const iso = toLocalIso(cursor);
+      if (!meetsThreshold(iso)) break;
+      streak++;
+    }
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
 }
 function calculateKpi(agentName, avgClaimsPerDay) {
   const tiers = getTiersForAgent(agentName);
@@ -661,10 +723,12 @@ function isoWeekNumber(dateStr) {
   const week1 = new Date(date.getFullYear(), 0, 4);
   return 1 + Math.round(((date - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
 }
+function toLocalIso(dateObj) {
+  const tz = dateObj.getTimezoneOffset() * 60000;
+  return new Date(dateObj - tz).toISOString().slice(0, 10);
+}
 function todayISO() {
-  const d = new Date();
-  const tz = d.getTimezoneOffset() * 60000;
-  return new Date(d - tz).toISOString().slice(0, 10);
+  return toLocalIso(new Date());
 }
 function cssVarColor(name, alpha) {
   const val = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -834,6 +898,28 @@ function uniqueAgents(claims, attendance) {
 function uniqueYears(claims) {
   const y = Array.from(new Set(claims.map((c) => c.year))).sort((a, b) => b - a);
   return y.length ? y : [new Date().getFullYear()];
+}
+
+// Walks backward from yesterday (never flags "today" — the day isn't over
+// yet) counting consecutive work days (Mon–Fri; Sat/Sun are rest days and
+// never counted as missing) with no logged claims > 0. Stops as soon as a
+// logged day is found, so this is specifically the *current* gap, not a
+// lifetime count. Capped at maxLookback to keep it cheap for new agents.
+function computeMissingWorkdays(claims, agentName, maxLookback = 14) {
+  const loggedDates = new Set(claims.filter((c) => c.agent === agentName && c.claims > 0).map((c) => c.date));
+  const missing = [];
+  const cursor = new Date();
+  cursor.setDate(cursor.getDate() - 1);
+  for (let i = 0; i < maxLookback; i++) {
+    const dow = cursor.getDay();
+    if (dow !== 0 && dow !== 6) {
+      const iso = toLocalIso(cursor);
+      if (loggedDates.has(iso)) break;
+      missing.push(iso);
+    }
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return missing; // most recent missing day first
 }
 
 function computeAgentSummaries(claims, attendance, agentNames) {
@@ -1082,7 +1168,10 @@ function initTheme() {
   document.getElementById('theme-toggle').addEventListener('click', () => {
     const current = document.documentElement.getAttribute('data-theme');
     applyTheme(current === 'dark' ? 'light' : 'dark');
-    // Chart colors depend on CSS vars; re-render current view for correct contrast.
+    // Chart colors are baked in at creation time, so a theme switch needs
+    // a real rebuild — everywhere else (polling, filters) updates charts
+    // in place instead to avoid the destroy/recreate flicker.
+    destroyAllCharts();
     if (state.view === 'dashboard') renderDashboard();
     if (state.view === 'history') renderHistory();
     if (state.view === 'profile') renderProfile();
@@ -1134,6 +1223,40 @@ function filtersBarHtml(filters, opts) {
 /* ==========================================================================
    RENDER — DASHBOARD VIEW
    ========================================================================== */
+function renderMissingEntriesAlert() {
+  const mount = document.getElementById('missing-entries-mount');
+  const isManager = state.identity.role === 'manager';
+
+  if (isManager) {
+    const gaps = state.agents
+      .map((agent) => ({ agent, missing: computeMissingWorkdays(state.claims, agent) }))
+      .filter((g) => g.missing.length > 0)
+      .sort((a, b) => b.missing.length - a.missing.length);
+
+    if (!gaps.length) { mount.innerHTML = ''; return; }
+
+    const summary = gaps.map((g) => `${g.agent} (${g.missing.length} day${g.missing.length !== 1 ? 's' : ''})`).join(', ');
+    mount.innerHTML = `
+      <div class="notice-banner" style="margin-top:1.5rem;">
+        <div class="notice-icon">${ICONS.alert}</div>
+        <span><strong>${gaps.length} agent${gaps.length !== 1 ? 's' : ''}</strong> ${gaps.length !== 1 ? "haven't" : "hasn't"} logged claims on a recent work day: ${summary}.</span>
+        <button class="notice-action" onclick="switchView('log')">Log for them</button>
+      </div>`;
+  } else {
+    const myAgentName = matchAgentName();
+    if (!myAgentName) { mount.innerHTML = ''; return; }
+    const missing = computeMissingWorkdays(state.claims, myAgentName);
+    if (!missing.length) { mount.innerHTML = ''; return; }
+
+    mount.innerHTML = `
+      <div class="notice-banner" style="margin-top:1.5rem;">
+        <div class="notice-icon">${ICONS.alert}</div>
+        <span>You haven't logged claims for <strong>${missing.length} work day${missing.length !== 1 ? 's' : ''}</strong> (most recent: ${fmtDisplayDate(missing[0])}).</span>
+        <button class="notice-action" onclick="switchView('log')">Log now</button>
+      </div>`;
+  }
+}
+
 function renderDashboard() {
   const filters = state.dashFilters;
   document.getElementById('filters-bar').innerHTML = filtersBarHtml(filters, { showWeek: true, showDateRange: true, showExport: true });
@@ -1144,6 +1267,7 @@ function renderDashboard() {
   });
 
   const { filteredClaims, filteredAttendance } = applyFilters(state.claims, state.attendance, filters);
+  renderMissingEntriesAlert();
   // Only summarize agents that match the current filter — passing the
   // full roster here regardless of the Agent filter was diluting "team"
   // averages (e.g. dividing by 5 agents even when 4 had no data in the
@@ -1153,19 +1277,22 @@ function renderDashboard() {
   const isManager = state.identity.role === 'manager';
 
   if (isManager && filters.agent === 'all') {
-    renderTeamKpiCards(summaries);
+    renderTeamKpiCards(summaries, filters);
     document.getElementById('goal-progress-mount').innerHTML = '';
+    document.getElementById('attendance-goal-mount').innerHTML = '';
   } else if (isManager) {
     // A manager has drilled into one specific agent — show that agent's
     // own numbers (same card set an agent sees for themselves), not a
     // team-wide average across everyone else.
-    renderKpiCards(summaries[0]);
+    renderKpiCards(summaries[0], filters);
     renderGoalProgress(summaries[0]);
+    renderAttendanceGoalCard(summaries[0]);
   } else {
     const myAgentName = matchAgentName();
     const me = summaries.find((s) => s.agent === myAgentName) || summaries[0];
-    renderKpiCards(me);
+    renderKpiCards(me, filters);
     renderGoalProgress(me);
+    renderAttendanceGoalCard(me);
   }
 
   renderDailyClaimsTable(filteredClaims, filters.agent, 'daily-claims-mount');
@@ -1181,6 +1308,14 @@ function renderDashboard() {
   // data point, which renders as an effectively empty chart.
   const { filteredAttendance: attendanceForTrend } = applyFilters(state.claims, state.attendance, { ...filters, month: 'all' });
   renderLineChart('chart-attendance', attendanceTrendSeries(attendanceForTrend), 'month', 'attendance', 'warm', true, 100);
+
+  // Agent comparison is inherently cross-agent, so it ignores the Agent
+  // filter the same way the Attendance Trend ignores Month — otherwise
+  // picking one agent would leave a "comparison" chart with one bar.
+  const { filteredClaims: claimsForComparison, filteredAttendance: attendanceForComparison } =
+    applyFilters(state.claims, state.attendance, { ...filters, agent: 'all' });
+  const comparisonSummaries = computeAgentSummaries(claimsForComparison, attendanceForComparison, state.agents);
+  renderAgentComparisonChart(comparisonSummaries);
 }
 
 // Shows a day-by-day claims breakdown for a single agent — only makes
@@ -1232,17 +1367,100 @@ function kpiCardsHtml(cards) {
       <div>
         <p class="kpi-value mono">${c.value}</p>
         ${c.sub ? `<p class="kpi-sub">${c.sub}</p>` : ''}
+        ${c.trendHtml || ''}
       </div>
     </div>`).join('');
 }
 
-function renderKpiCards(me) {
+// Percentage change, or null when there's nothing sensible to compare
+// against (e.g. previous month had zero, or no data exists yet).
+function pctChange(curr, prev) {
+  if (prev === null || prev === undefined || prev === 0) return null;
+  return ((curr - prev) / prev) * 100;
+}
+
+function trendHtml(pct, prevMonthLabel) {
+  if (pct === null || pct === undefined || !Number.isFinite(pct)) return '';
+  const up = pct >= 0;
+  const colorVar = up ? '--accent' : '--warm';
+  const arrow = up ? '▲' : '▼';
+  return `<p class="kpi-trend" style="color:rgb(var(${colorVar}));">${arrow} ${Math.abs(pct).toFixed(0)}% vs ${prevMonthLabel}</p>`;
+}
+
+function prevMonthOf(year, month) {
+  return month <= 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
+}
+
+// Compares one agent's this-month figures against the same figures for
+// the previous month — independent of whatever filters are currently
+// narrowing the rest of the dashboard, since a trend needs its own fixed
+// "this month vs last month" window to mean anything.
+function computeMonthOverMonthTrend(agentName, year, month) {
+  const prev = prevMonthOf(year, month);
+  const thisMonth = state.claims.filter((c) => c.agent === agentName && c.year === year && c.month === month);
+  const prevMonth = state.claims.filter((c) => c.agent === agentName && c.year === prev.year && c.month === prev.month);
+
+  const totalThis = thisMonth.reduce((s, c) => s + c.claims, 0);
+  const totalPrev = prevMonth.reduce((s, c) => s + c.claims, 0);
+
+  const activeDaysThis = new Set(thisMonth.filter((c) => c.claims > 0).map((c) => c.date)).size;
+  const activeDaysPrev = new Set(prevMonth.filter((c) => c.claims > 0).map((c) => c.date)).size;
+  const avgThis = activeDaysThis ? totalThis / activeDaysThis : 0;
+  const avgPrev = activeDaysPrev ? totalPrev / activeDaysPrev : 0;
+
+  const attThisRows = state.attendance.filter((a) => a.agent === agentName && a.year === year && a.month === month);
+  const attPrevRows = state.attendance.filter((a) => a.agent === agentName && a.year === prev.year && a.month === prev.month);
+  const attThis = attThisRows.length ? attThisRows.reduce((s, a) => s + a.attendance, 0) / attThisRows.length : null;
+  const attPrev = attPrevRows.length ? attPrevRows.reduce((s, a) => s + a.attendance, 0) / attPrevRows.length : null;
+
+  return {
+    prevMonthLabel: MONTH_NAMES[prev.month - 1],
+    mtdClaimsTrend: pctChange(totalThis, totalPrev),
+    avgClaimsTrend: pctChange(avgThis, avgPrev),
+    attendanceTrend: attThis !== null && attPrev !== null ? pctChange(attThis, attPrev) : null,
+  };
+}
+
+// Same idea, pooled across the whole team rather than one agent.
+function computeTeamMonthOverMonthTrend(year, month) {
+  const prev = prevMonthOf(year, month);
+  const thisMonth = state.claims.filter((c) => c.year === year && c.month === month);
+  const prevMonth = state.claims.filter((c) => c.year === prev.year && c.month === prev.month);
+
+  const totalThis = thisMonth.reduce((s, c) => s + c.claims, 0);
+  const totalPrev = prevMonth.reduce((s, c) => s + c.claims, 0);
+
+  const activeDaysThis = new Set(thisMonth.filter((c) => c.claims > 0).map((c) => c.agent + '|' + c.date)).size;
+  const activeDaysPrev = new Set(prevMonth.filter((c) => c.claims > 0).map((c) => c.agent + '|' + c.date)).size;
+  const avgThis = activeDaysThis ? totalThis / activeDaysThis : 0;
+  const avgPrev = activeDaysPrev ? totalPrev / activeDaysPrev : 0;
+
+  const attThisRows = state.attendance.filter((a) => a.year === year && a.month === month);
+  const attPrevRows = state.attendance.filter((a) => a.year === prev.year && a.month === prev.month);
+  const attThis = attThisRows.length ? attThisRows.reduce((s, a) => s + a.attendance, 0) / attThisRows.length : null;
+  const attPrev = attPrevRows.length ? attPrevRows.reduce((s, a) => s + a.attendance, 0) / attPrevRows.length : null;
+
+  return {
+    prevMonthLabel: MONTH_NAMES[prev.month - 1],
+    mtdClaimsTrend: pctChange(totalThis, totalPrev),
+    avgClaimsTrend: pctChange(avgThis, avgPrev),
+    attendanceTrend: attThis !== null && attPrev !== null ? pctChange(attThis, attPrev) : null,
+  };
+}
+
+function renderKpiCards(me, filters) {
   if (!me) { document.getElementById('kpi-grid').innerHTML = ''; return; }
+  // A trend only means something when comparing one specific month to the
+  // one before it — "All months" has no single "this month" to anchor on.
+  const trend = filters && filters.month !== 'all'
+    ? computeMonthOverMonthTrend(me.agent, filters.year, filters.month)
+    : null;
+
   const cards = [
     { icon: ICONS.check, label: "Today's Claims", value: fmtNum(me.todayClaims), accent: 'primary' },
-    { icon: ICONS.calendarRange, label: 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), accent: 'accent' },
-    { icon: ICONS.gauge, label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1), accent: 'violet' },
-    { icon: ICONS.calendarCheck, label: 'Attendance', value: fmtPct(me.attendancePct, 1), accent: 'warm' },
+    { icon: ICONS.calendarRange, label: 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), accent: 'accent', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
+    { icon: ICONS.gauge, label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1), accent: 'violet', trendHtml: trend ? trendHtml(trend.avgClaimsTrend, trend.prevMonthLabel) : '' },
+    { icon: ICONS.calendarCheck, label: 'Attendance', value: fmtPct(me.attendancePct, 1), accent: 'warm', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.award, label: 'Current Rank', value: '#' + me.rank, sub: me.kpi.tierLabel, accent: 'rose' },
   ];
   document.getElementById('kpi-grid').innerHTML = kpiCardsHtml(cards);
@@ -1250,7 +1468,7 @@ function renderKpiCards(me) {
 
 // Manager view: team-wide totals instead of one agent's personal stats —
 // there's no "me" row for a manager to summarize.
-function renderTeamKpiCards(summaries) {
+function renderTeamKpiCards(summaries, filters) {
   const mount = document.getElementById('kpi-grid');
   if (!summaries.length) { mount.innerHTML = ''; return; }
   const todayClaims = summaries.reduce((s, a) => s + a.todayClaims, 0);
@@ -1259,11 +1477,15 @@ function renderTeamKpiCards(summaries) {
   const attendancePct = summaries.reduce((s, a) => s + a.attendancePct, 0) / summaries.length;
   const topAgent = summaries[0]; // already sorted by rank
 
+  const trend = filters && filters.month !== 'all'
+    ? computeTeamMonthOverMonthTrend(filters.year, filters.month)
+    : null;
+
   const cards = [
     { icon: ICONS.check, label: "Team Today's Claims", value: fmtNum(todayClaims), accent: 'primary' },
-    { icon: ICONS.calendarRange, label: 'Team Month-to-Date', value: fmtNum(mtdClaims), accent: 'accent' },
-    { icon: ICONS.gauge, label: 'Team Avg Claims / Day', value: fmtNum(avgClaimsPerDay, 1), accent: 'violet' },
-    { icon: ICONS.calendarCheck, label: 'Team Attendance', value: fmtPct(attendancePct, 1), accent: 'warm' },
+    { icon: ICONS.calendarRange, label: 'Team Month-to-Date', value: fmtNum(mtdClaims), accent: 'accent', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
+    { icon: ICONS.gauge, label: 'Team Avg Claims / Day', value: fmtNum(avgClaimsPerDay, 1), accent: 'violet', trendHtml: trend ? trendHtml(trend.avgClaimsTrend, trend.prevMonthLabel) : '' },
+    { icon: ICONS.calendarCheck, label: 'Team Attendance', value: fmtPct(attendancePct, 1), accent: 'warm', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.award, label: 'Top Agent', value: topAgent.agent, sub: topAgent.kpi.tierLabel, accent: 'rose' },
   ];
   mount.innerHTML = kpiCardsHtml(cards);
@@ -1298,6 +1520,51 @@ function renderGoalProgress(me) {
           <span class="ring-pct mono">${gp.progressPct}%</span>
           <span class="ring-label">to goal</span>
           <span class="ring-sub mono">${gp.current}/${gp.goal}</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderAttendanceGoalCard(me) {
+  const mount = document.getElementById('attendance-goal-mount');
+  if (!me) { mount.innerHTML = ''; return; }
+
+  const target = CONFIG.ATTENDANCE_TARGET_PCT;
+  const current = me.attendancePct;
+  const progressPct = Math.min(Math.round((current / target) * 100), 100);
+  const gapPts = Math.max(target - current, 0);
+  const size = 148, stroke = 12, radius = (size - stroke) / 2, circumference = 2 * Math.PI * radius;
+  const offset = circumference - (progressPct / 100) * circumference;
+  const met = current >= target;
+
+  mount.innerHTML = `
+    <div class="glass glass-hover card goal-card">
+      <div class="goal-left">
+        <div class="goal-eyebrow">${ICONS.calendarCheck}Attendance Goal</div>
+        <div>
+          <p class="goal-title display">${target}% Target</p>
+          <p class="goal-detail">
+            <span class="mono" style="font-weight:700;color:rgb(var(--ink));">${fmtPct(current, 1)}</span> this month
+            ${met
+              ? ` &middot; <span class="mono" style="font-weight:700;color:rgb(var(--accent));">Target met</span>`
+              : ` &middot; <span class="mono" style="font-weight:700;color:rgb(var(--warm));">${gapPts.toFixed(1)} pts</span> to go`}
+          </p>
+        </div>
+      </div>
+      <div class="ring-wrap">
+        <svg width="${size}" height="${size}">
+          <defs><linearGradient id="ring-gradient-attendance" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="${cssVarColor('--accent')}" /><stop offset="100%" stop-color="${cssVarColor('--primary')}" />
+          </linearGradient></defs>
+          <circle cx="${size/2}" cy="${size/2}" r="${radius}" fill="none" stroke="${cssVarColor('--ink', 0.08)}" stroke-width="${stroke}" />
+          <circle cx="${size/2}" cy="${size/2}" r="${radius}" fill="none" stroke="url(#ring-gradient-attendance)" stroke-width="${stroke}"
+            stroke-linecap="round" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"
+            style="transition: stroke-dashoffset 1s ease;" />
+        </svg>
+        <div class="ring-center">
+          <span class="ring-pct mono">${progressPct}%</span>
+          <span class="ring-label">of target</span>
+          <span class="ring-sub mono">${fmtPct(current, 1)}/${target}%</span>
         </div>
       </div>
     </div>`;
@@ -1347,9 +1614,25 @@ function renderInsights(insights, mountId) {
    RENDER — CHARTS (Chart.js)
    ========================================================================== */
 function destroyChart(id) { if (state.charts[id]) { state.charts[id].destroy(); delete state.charts[id]; } }
+function destroyAllCharts() { Object.keys(state.charts).forEach(destroyChart); }
 
 function renderLineChart(canvasId, data, xKey, yKey, colorVar, filled, maxY) {
-  destroyChart(canvasId);
+  const labels = data.map((d) => d[xKey]);
+  const values = data.map((d) => d[yKey]);
+
+  const existing = state.charts[canvasId];
+  if (existing) {
+    // Update in place — destroying and recreating the chart every refresh
+    // is what caused the visible flicker on every poll, since Chart.js's
+    // first draw after creation isn't guaranteed to land in the same
+    // paint frame as the destroy. Colors don't need to change here since
+    // a theme switch forces a full recreate via destroyAllCharts() instead.
+    existing.data.labels = labels;
+    existing.data.datasets[0].data = values;
+    existing.update(CHART_ANIMATION_ENABLED ? undefined : 'none');
+    return;
+  }
+
   const ctx = document.getElementById(canvasId);
   if (!ctx) return;
   const color = cssVarColor('--' + colorVar);
@@ -1357,9 +1640,9 @@ function renderLineChart(canvasId, data, xKey, yKey, colorVar, filled, maxY) {
   state.charts[canvasId] = new Chart(ctx, {
     type: 'line',
     data: {
-      labels: data.map((d) => d[xKey]),
+      labels,
       datasets: [{
-        data: data.map((d) => d[yKey]), borderColor: color, backgroundColor: fillColor,
+        data: values, borderColor: color, backgroundColor: fillColor,
         fill: !!filled, tension: 0.35, pointRadius: 0, borderWidth: 2.5,
       }],
     },
@@ -1375,16 +1658,28 @@ function renderLineChart(canvasId, data, xKey, yKey, colorVar, filled, maxY) {
 }
 
 function renderBarChart(canvasId, data, xKey, yKey) {
-  destroyChart(canvasId);
+  const labels = data.map((d) => d[xKey]);
+  const values = data.map((d) => d[yKey]);
+  const maxIndex = data.reduce((best, d, i) => (d[yKey] > (data[best] ? data[best][yKey] : -1) ? i : best), 0);
+
+  const existing = state.charts[canvasId];
+  if (existing) {
+    const primary = cssVarColor('--primary'), warm = cssVarColor('--warm');
+    existing.data.labels = labels;
+    existing.data.datasets[0].data = values;
+    existing.data.datasets[0].backgroundColor = values.map((_, i) => (i === maxIndex ? warm : primary));
+    existing.update(CHART_ANIMATION_ENABLED ? undefined : 'none');
+    return;
+  }
+
   const ctx = document.getElementById(canvasId);
   if (!ctx) return;
-  const maxIndex = data.reduce((best, d, i) => (d[yKey] > (data[best] ? data[best][yKey] : -1) ? i : best), 0);
   const primary = cssVarColor('--primary'), warm = cssVarColor('--warm');
   state.charts[canvasId] = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: data.map((d) => d[xKey]),
-      datasets: [{ data: data.map((d) => d[yKey]), backgroundColor: data.map((_, i) => (i === maxIndex ? warm : primary)), borderRadius: 8 }],
+      labels,
+      datasets: [{ data: values, backgroundColor: values.map((_, i) => (i === maxIndex ? warm : primary)), borderRadius: 8 }],
     },
     options: {
       responsive: true, maintainAspectRatio: false, animation: CHART_ANIMATION_ENABLED ? undefined : false,
@@ -1392,6 +1687,41 @@ function renderBarChart(canvasId, data, xKey, yKey) {
       scales: {
         x: { grid: { display: false }, ticks: { color: cssVarColor('--muted'), font: { size: 10 } } },
         y: { grid: { color: cssVarColor('--border') }, ticks: { color: cssVarColor('--muted'), font: { size: 10 } } },
+      },
+    },
+  });
+}
+
+// Horizontal bar comparing every agent's average claims/day side by side —
+// distinct from the leaderboard list, this is meant for a quick visual
+// scan of who's ahead/behind rather than exact ranking numbers.
+function renderAgentComparisonChart(summaries) {
+  const canvasId = 'chart-comparison';
+  const sorted = [...summaries].sort((a, b) => b.avgClaimsPerDay - a.avgClaimsPerDay);
+  const labels = sorted.map((s) => s.agent);
+  const values = sorted.map((s) => Number(s.avgClaimsPerDay.toFixed(1)));
+
+  const existing = state.charts[canvasId];
+  if (existing) {
+    existing.data.labels = labels;
+    existing.data.datasets[0].data = values;
+    existing.update(CHART_ANIMATION_ENABLED ? undefined : 'none');
+    return;
+  }
+
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  const primary = cssVarColor('--primary');
+  state.charts[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [{ data: values, backgroundColor: primary, borderRadius: 6, barThickness: 18 }] },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false, animation: CHART_ANIMATION_ENABLED ? undefined : false,
+      plugins: { legend: { display: false }, tooltip: { backgroundColor: cssVarColor('--surface'), titleColor: cssVarColor('--ink'), bodyColor: cssVarColor('--ink'), borderColor: cssVarColor('--border'), borderWidth: 1 } },
+      scales: {
+        x: { grid: { color: cssVarColor('--border') }, ticks: { color: cssVarColor('--muted'), font: { size: 10 } } },
+        y: { grid: { display: false }, ticks: { color: cssVarColor('--muted'), font: { size: 11 } } },
       },
     },
   });
@@ -1514,11 +1844,13 @@ function renderProfile() {
 
   const currentMonthLabel = MONTH_NAMES[new Date().getMonth()];
   if (me) {
+    const streak = computeKpiStreak(state.claims, me.agent);
     const stats = [
       { label: `Claims (${currentMonthLabel})`, value: fmtNum(me.mtdClaims) },
       { label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1) },
       { label: 'Attendance', value: fmtPct(me.attendancePct, 1) },
       { label: 'Current KPI', value: me.kpi.level || '—' },
+      { label: 'KPI 4+ Streak', value: streak > 0 ? `${streak} day${streak !== 1 ? 's' : ''} 🔥` : '—' },
     ];
     document.getElementById('profile-stats-mount').innerHTML = stats.map((s) => `
       <div class="glass glass-hover card">
@@ -1563,14 +1895,21 @@ function renderProfile() {
 function renderProfileClaimsLogControls(agentName) {
   const monthSelect = document.getElementById('profile-log-month');
   const yearSelect = document.getElementById('profile-log-year');
+  const exportBtn = document.getElementById('profile-log-export-btn');
   const filters = state.profileLogFilters;
 
   const yearOptions = state.years.length ? state.years : [filters.year];
   yearSelect.innerHTML = yearOptions.map((y) => `<option value="${y}" ${y === filters.year ? 'selected' : ''}>${y}</option>`).join('');
   monthSelect.innerHTML = MONTH_NAMES.map((m, i) => `<option value="${i + 1}" ${i + 1 === filters.month ? 'selected' : ''}>${m}</option>`).join('');
+  exportBtn.innerHTML = ICONS.download;
 
   monthSelect.onchange = () => { filters.month = Number(monthSelect.value); renderProfileClaimsLog(agentName); };
   yearSelect.onchange = () => { filters.year = Number(yearSelect.value); renderProfileClaimsLog(agentName); };
+  exportBtn.onclick = () => {
+    const rows = state.claims.filter((c) => c.agent === agentName && c.year === filters.year && c.month === filters.month);
+    const monthLabel = MONTH_NAMES[filters.month - 1];
+    downloadCsv(`${agentName.replace(/[^a-z0-9]+/gi, '-')}-${monthLabel}-${filters.year}-claims.csv`, claimsToCsv(rows));
+  };
 
   renderProfileClaimsLog(agentName);
 }
