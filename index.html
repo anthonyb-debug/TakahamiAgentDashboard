@@ -76,7 +76,7 @@
   .glass-hover { transition: transform .22s cubic-bezier(.4,0,.2,1), box-shadow .22s ease, border-color .22s ease; }
   .glass-hover:hover { transform: translateY(-2px); box-shadow: 0 1px 2px rgb(var(--ink) / .04), 0 20px 40px -10px rgb(var(--ink) / .12); border-color: rgb(var(--primary) / .3); }
 
-  .card { border-radius: 1.25rem; padding: 1.5rem; animation: fade-up .45s cubic-bezier(.16,1,.3,1) both; }
+  .card { border-radius: 1.25rem; padding: 1.5rem; animation: fade-up var(--card-anim-duration, .45s) cubic-bezier(.16,1,.3,1) both; }
 
   @keyframes fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -117,6 +117,15 @@
   .topnav .nav-item.active::before { display: none; }
 
   .topnav-right { display: flex; align-items: center; gap: .5rem; flex-shrink: 0; }
+
+  .status-chips { display: none; align-items: center; gap: .5rem; margin-left: auto; }
+  @media (min-width: 1180px) { .status-chips { display: flex; } }
+  .status-chip {
+    display: flex; flex-direction: column; gap: .1rem; background: rgba(255,255,255,.08);
+    border-radius: .65rem; padding: .4rem .75rem; line-height: 1.15;
+  }
+  .status-chip-label { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: rgba(255,255,255,.55); }
+  .status-chip-value { font-size: .78rem; font-weight: 700; color: #fff; }
   .topnav .icon-btn { background: rgba(255,255,255,.1); color: #fff; }
   .topnav .icon-btn:hover { background: rgba(255,255,255,.18); }
   .topnav .user-chip { background: rgba(255,255,255,.1); }
@@ -347,11 +356,21 @@
       <div class="brand">
         <div class="logo-badge">✦</div>
         <div>
-          <p class="brand-name">Takahami</p>
-          <p class="brand-sub">Agent Dashboard</p>
+          <p class="brand-name">Agent Dashboard</p>
+          <p class="brand-sub">Takahami</p>
         </div>
       </div>
       <nav class="nav" id="nav-desktop"></nav>
+      <div class="status-chips">
+        <div class="status-chip">
+          <span class="status-chip-label">Latest Update</span>
+          <span class="status-chip-value" id="stat-latest-update">—</span>
+        </div>
+        <div class="status-chip">
+          <span class="status-chip-label">Last Synced</span>
+          <span class="status-chip-value" id="stat-last-synced">—</span>
+        </div>
+      </div>
       <div class="topnav-right">
         <button class="icon-btn" id="theme-toggle" title="Toggle theme"></button>
         <div class="user-chip" id="user-chip">
@@ -464,6 +483,16 @@
         <div class="glass card" style="margin-top:1.5rem;">
           <h3 class="chart-title">Performance Trend</h3>
           <div class="chart-wrap"><canvas id="profile-chart"></canvas></div>
+        </div>
+        <div class="glass card" style="margin-top:1.5rem;" id="profile-claims-card">
+          <div class="dc-head">
+            <h3>Your Claims Entries</h3>
+            <div style="display:flex; gap:.5rem;">
+              <select id="profile-log-month" style="width:auto;"></select>
+              <select id="profile-log-year" style="width:auto;"></select>
+            </div>
+          </div>
+          <div id="profile-claims-log-mount"></div>
         </div>
         <div id="profile-note-mount"></div>
       </div>
@@ -608,6 +637,22 @@ function fmtNum(n, decimals = 0) {
 }
 function fmtPct(n, decimals = 0) {
   return Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: decimals }) + '%';
+}
+function fmtDisplayDate(isoDate) {
+  if (!isoDate) return '—';
+  const [y, m, d] = isoDate.split('-').map(Number);
+  return `${m}/${d}/${y}`;
+}
+function updateStatusChips(claims) {
+  const latestEl = document.getElementById('stat-latest-update');
+  const syncedEl = document.getElementById('stat-last-synced');
+  if (latestEl) {
+    const latestDate = claims.reduce((max, c) => (c.date > max ? c.date : max), '');
+    latestEl.textContent = fmtDisplayDate(latestDate);
+  }
+  if (syncedEl) {
+    syncedEl.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
 }
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 function isoWeekNumber(dateStr) {
@@ -901,6 +946,10 @@ function downloadCsv(filename, csv) {
 /* ==========================================================================
    APP STATE
    ========================================================================== */
+// Toggled off during silent background polls so charts update their data
+// without replaying the draw-in animation every refresh interval.
+let CHART_ANIMATION_ENABLED = true;
+
 const state = {
   identity: null,      // { name, email, picture }
   claims: [],
@@ -910,9 +959,9 @@ const state = {
   view: 'dashboard',    // dashboard | history | profile
   dashFilters: null,
   historyFilters: null,
+  profileLogFilters: null,
   charts: {},           // Chart.js instances keyed by canvas id
   pollHandle: null,
-  filtersInitialized: false,
 };
 
 /* ==========================================================================
@@ -1126,7 +1175,12 @@ function renderDashboard() {
   renderLineChart('chart-claims-trend', claimsTrendSeries(filteredClaims), 'date', 'claims', 'primary', true);
   renderLineChart('chart-daily-average', dailyAverageSeries(filteredClaims), 'date', 'average', 'accent', false);
   renderBarChart('chart-weekly', weeklyProductivitySeries(filteredClaims), 'week', 'claims');
-  renderLineChart('chart-attendance', attendanceTrendSeries(filteredAttendance), 'month', 'attendance', 'warm', true, 100);
+
+  // Attendance Trend shows monthly history, so it ignores the Month filter
+  // on purpose — filtering it down to a single month would leave only one
+  // data point, which renders as an effectively empty chart.
+  const { filteredAttendance: attendanceForTrend } = applyFilters(state.claims, state.attendance, { ...filters, month: 'all' });
+  renderLineChart('chart-attendance', attendanceTrendSeries(attendanceForTrend), 'month', 'attendance', 'warm', true, 100);
 }
 
 // Shows a day-by-day claims breakdown for a single agent — only makes
@@ -1310,7 +1364,7 @@ function renderLineChart(canvasId, data, xKey, yKey, colorVar, filled, maxY) {
       }],
     },
     options: {
-      responsive: true, maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false, animation: CHART_ANIMATION_ENABLED ? undefined : false,
       plugins: { legend: { display: false }, tooltip: { backgroundColor: cssVarColor('--surface'), titleColor: cssVarColor('--ink'), bodyColor: cssVarColor('--ink'), borderColor: cssVarColor('--border'), borderWidth: 1 } },
       scales: {
         x: { grid: { display: false }, ticks: { color: cssVarColor('--muted'), font: { size: 10 } } },
@@ -1333,7 +1387,7 @@ function renderBarChart(canvasId, data, xKey, yKey) {
       datasets: [{ data: data.map((d) => d[yKey]), backgroundColor: data.map((_, i) => (i === maxIndex ? warm : primary)), borderRadius: 8 }],
     },
     options: {
-      responsive: true, maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false, animation: CHART_ANIMATION_ENABLED ? undefined : false,
       plugins: { legend: { display: false }, tooltip: { backgroundColor: cssVarColor('--surface'), titleColor: cssVarColor('--ink'), bodyColor: cssVarColor('--ink'), borderColor: cssVarColor('--border'), borderWidth: 1 } },
       scales: {
         x: { grid: { display: false }, ticks: { color: cssVarColor('--muted'), font: { size: 10 } } },
@@ -1354,7 +1408,9 @@ function renderHistory() {
   const { filteredClaims, filteredAttendance } = applyFilters(state.claims, state.attendance, filters);
   renderLineChart('hist-chart-claims', claimsTrendSeries(filteredClaims), 'date', 'claims', 'primary', true);
   renderBarChart('hist-chart-weekly', weeklyProductivitySeries(filteredClaims), 'week', 'claims');
-  renderLineChart('hist-chart-attendance', attendanceTrendSeries(filteredAttendance), 'month', 'attendance', 'warm', true, 100);
+
+  const { filteredAttendance: attendanceForTrend } = applyFilters(state.claims, state.attendance, { ...filters, month: 'all' });
+  renderLineChart('hist-chart-attendance', attendanceTrendSeries(attendanceForTrend), 'month', 'attendance', 'warm', true, 100);
   renderInsights(computeInsights(filteredClaims, filteredAttendance), 'history-insights-mount');
 }
 
@@ -1475,6 +1531,14 @@ function renderProfile() {
   const myClaims = state.claims.filter((c) => c.agent === myAgentName);
   renderLineChart('profile-chart', claimsTrendSeries(myClaims), 'date', 'claims', 'primary', true);
 
+  const claimsCard = document.getElementById('profile-claims-card');
+  if (myAgentName) {
+    claimsCard.classList.remove('hidden');
+    renderProfileClaimsLogControls(myAgentName);
+  } else {
+    claimsCard.classList.add('hidden');
+  }
+
   const noteMount = document.getElementById('profile-note-mount');
   if (myAgentName) {
     noteMount.innerHTML = '';
@@ -1494,6 +1558,51 @@ function renderProfile() {
         "Agent" column matches your display name exactly.
       </div>`;
   }
+}
+
+function renderProfileClaimsLogControls(agentName) {
+  const monthSelect = document.getElementById('profile-log-month');
+  const yearSelect = document.getElementById('profile-log-year');
+  const filters = state.profileLogFilters;
+
+  const yearOptions = state.years.length ? state.years : [filters.year];
+  yearSelect.innerHTML = yearOptions.map((y) => `<option value="${y}" ${y === filters.year ? 'selected' : ''}>${y}</option>`).join('');
+  monthSelect.innerHTML = MONTH_NAMES.map((m, i) => `<option value="${i + 1}" ${i + 1 === filters.month ? 'selected' : ''}>${m}</option>`).join('');
+
+  monthSelect.onchange = () => { filters.month = Number(monthSelect.value); renderProfileClaimsLog(agentName); };
+  yearSelect.onchange = () => { filters.year = Number(yearSelect.value); renderProfileClaimsLog(agentName); };
+
+  renderProfileClaimsLog(agentName);
+}
+
+function renderProfileClaimsLog(agentName) {
+  const filters = state.profileLogFilters;
+  const mount = document.getElementById('profile-claims-log-mount');
+  const rows = state.claims
+    .filter((c) => c.agent === agentName && c.year === filters.year && c.month === filters.month)
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  const total = rows.reduce((s, r) => s + r.claims, 0);
+  const best = rows.reduce((max, r) => Math.max(max, r.claims), 0);
+
+  const tableRows = rows.map((r) => {
+    const dow = new Date(r.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' });
+    return `
+      <tr class="${r.claims === best && best > 0 ? 'dc-best' : ''}">
+        <td>${r.date}</td>
+        <td>${dow}</td>
+        <td class="num mono">${fmtNum(r.claims)}</td>
+      </tr>`;
+  }).join('');
+
+  mount.innerHTML = `
+    <p style="font-size:.7rem; color:rgb(var(--muted)); margin:-.6rem 0 .9rem;">${rows.length} day${rows.length !== 1 ? 's' : ''} &middot; ${fmtNum(total)} total this month</p>
+    <div class="dc-table-wrap">
+      <table class="dc-table">
+        <thead><tr><th>Date</th><th>Day</th><th class="num">Claims</th></tr></thead>
+        <tbody>${tableRows || '<tr><td colspan="3" class="empty-state">No claims logged for this month.</td></tr>'}</tbody>
+      </table>
+    </div>`;
 }
 
 /* ==========================================================================
@@ -1525,26 +1634,23 @@ async function loadData(showErrors = true) {
     state.agents = uniqueAgents(claims, attendance);
     state.years = uniqueYears(claims);
 
-    if (!state.filtersInitialized && claims.length > 0) {
-      // Default to the most recent year/month that actually has data, instead
-      // of assuming "today" — sample/test data is rarely dated for the real
-      // current month, and that made the dashboard look empty by default.
-      const latestYear = state.years[0];
-      const claimsInLatestYear = claims.filter((c) => c.year === latestYear);
-      const latestMonth = claimsInLatestYear.length
-        ? Math.max(...claimsInLatestYear.map((c) => c.month))
-        : 'all';
-
-      state.dashFilters.year = latestYear;
-      state.dashFilters.month = latestMonth;
-      state.historyFilters.year = latestYear;
-      state.filtersInitialized = true;
-    }
-
+    updateStatusChips(claims);
     document.getElementById('global-error').classList.add('hidden');
+
+    // A silent background poll (showErrors === false) should update the
+    // dashboard without visibly flickering — that means no card entrance
+    // animation replaying and no chart redraw animation replaying, since
+    // the underlying DOM/canvas elements get freshly rebuilt either way.
+    const silent = showErrors === false;
+    if (silent) document.documentElement.style.setProperty('--card-anim-duration', '0s');
+    CHART_ANIMATION_ENABLED = !silent;
+
     if (state.view === 'dashboard') renderDashboard();
     if (state.view === 'history') renderHistory();
     if (state.view === 'profile') renderProfile();
+
+    if (silent) document.documentElement.style.setProperty('--card-anim-duration', '.45s');
+    CHART_ANIMATION_ENABLED = true;
   } catch (err) {
     console.error('Failed to load Google Sheets data', err);
     if (showErrors) {
@@ -1567,6 +1673,7 @@ function enterApp(identity) {
   const currentMonth = new Date().getMonth() + 1;
   state.dashFilters = { year: currentYear, month: currentMonth, agent: 'all', week: 'all' };
   state.historyFilters = { year: currentYear, month: 'all', agent: 'all', week: 'all' };
+  state.profileLogFilters = { year: currentYear, month: currentMonth };
 
   renderNav();
   renderTopbarUser();
