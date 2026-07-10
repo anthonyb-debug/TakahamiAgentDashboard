@@ -336,7 +336,7 @@
   .pill-primary { background: rgb(var(--primary) / .1); color: rgb(var(--primary)); }
   .pill-accent { background: rgb(var(--accent) / .1); color: rgb(var(--accent)); }
   .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-  @media (min-width: 1024px) { .stat-grid { grid-template-columns: repeat(5, 1fr); } }
+  @media (min-width: 1024px) { .stat-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); } }
   .stat-label { font-size: .7rem; font-weight: 500; color: rgb(var(--muted)); margin: 0; }
   .stat-value { font-size: 1.35rem; font-weight: 700; margin: .3rem 0 0; letter-spacing: -.02em; }
 
@@ -747,12 +747,22 @@ function calculateKpi(agentName, avgClaimsPerDay) {
     if (rounded >= t.min && (t.max === null || rounded <= t.max)) { matched = t; break; }
   }
   const topTier = tiers[tiers.length - 1];
+  const sortedAscending = [...tiers].sort((a, b) => a.min - b.min);
+  const nextTier = sortedAscending.find((t) => t.min > rounded) || null;
   return {
     level: matched ? matched.level : 0,
     tierLabel: matched ? ('KPI ' + matched.level) : 'Below KPI 3',
     dailyGoal: topTier.min,
+    nextTier,
+    avgGapToNextTier: nextTier ? Math.max(nextTier.min - avgClaimsPerDay, 0) : 0,
   };
 }
+// "KPI 4 · +8 avg/day for KPI 5", or just the tier label at the top tier.
+function kpiTierSubtext(kpi) {
+  if (!kpi.nextTier) return kpi.tierLabel + ' · Top tier';
+  return `${kpi.tierLabel} · +${Math.ceil(kpi.avgGapToNextTier)} avg/day for KPI ${kpi.nextTier.level}`;
+}
+
 function goalProgress(agentName, todayClaims) {
   const tiers = getTiersForAgent(agentName);
   const goal = tiers[tiers.length - 1].min;
@@ -1544,7 +1554,7 @@ function renderKpiCards(me, filters) {
     { icon: ICONS.calendarRange, label: 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), accent: 'accent', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.gauge, label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1), accent: 'violet', trendHtml: trend ? trendHtml(trend.avgClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.calendarCheck, label: 'Attendance', value: fmtPct(me.attendancePct, 1), accent: 'warm', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
-    { icon: ICONS.award, label: 'Current Rank', value: '#' + me.rank, sub: me.kpi.tierLabel, accent: 'rose' },
+    { icon: ICONS.award, label: 'Current Rank', value: '#' + me.rank, sub: kpiTierSubtext(me.kpi), accent: 'rose' },
   ];
   document.getElementById('kpi-grid').innerHTML = kpiCardsHtml(cards);
 }
@@ -2016,6 +2026,7 @@ function renderProfile() {
       { label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1) },
       { label: 'Attendance', value: fmtPct(me.attendancePct, 1) },
       { label: 'Current KPI', value: me.kpi.level || '—' },
+      { label: 'To Next Tier', value: me.kpi.nextTier ? `+${Math.ceil(me.kpi.avgGapToNextTier)} avg/day` : 'Top tier' },
       { label: 'KPI 4+ Streak', value: streak > 0 ? `${streak} day${streak !== 1 ? 's' : ''} 🔥` : '—' },
     ];
     document.getElementById('profile-stats-mount').innerHTML = stats.map((s) => `
