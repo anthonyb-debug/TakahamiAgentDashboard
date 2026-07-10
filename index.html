@@ -701,6 +701,44 @@ function computeKpiStreak(claims, agentName, maxLookback = 60) {
   }
   return streak;
 }
+
+// Counts Mon–Fri work days from the 1st of the month through today (or
+// through the last day, if looking at a past month).
+function workdaysElapsedInMonth(year, month) {
+  const today = new Date();
+  const isCurrentMonth = year === today.getFullYear() && month === today.getMonth() + 1;
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const lastDay = isCurrentMonth ? today.getDate() : daysInMonth;
+  let count = 0;
+  for (let d = 1; d <= lastDay; d++) {
+    const dow = new Date(year, month - 1, d).getDay();
+    if (dow !== 0 && dow !== 6) count++;
+  }
+  return count;
+}
+
+// "Expected so far" is work days elapsed × the agent's own KPI-4 daily
+// target — the same bar computeKpiStreak measures against. Positive
+// deficit = behind that pace, negative = running ahead of it.
+function computeClaimsDeficit(claims, agentName, year, month) {
+  const threshold = getTiersForAgent(agentName).find((t) => t.level === 4).min;
+  const workdays = workdaysElapsedInMonth(year, month);
+  const expected = workdays * threshold;
+  const actual = claims.filter((c) => c.agent === agentName && c.year === year && c.month === month).reduce((s, c) => s + c.claims, 0);
+  return { expected, actual, deficit: expected - actual };
+}
+
+// Same idea, pooled across every agent (each still measured against
+// their own personal KPI-4 target, since Christia's differs from the rest).
+function computeTeamClaimsDeficit(claims, agentNames, year, month) {
+  let expected = 0, actual = 0;
+  agentNames.forEach((agent) => {
+    const d = computeClaimsDeficit(claims, agent, year, month);
+    expected += d.expected;
+    actual += d.actual;
+  });
+  return { expected, actual, deficit: expected - actual };
+}
 function calculateKpi(agentName, avgClaimsPerDay) {
   const tiers = getTiersForAgent(agentName);
   const rounded = Math.round(avgClaimsPerDay);
@@ -1476,6 +1514,18 @@ function computeTeamMonthOverMonthTrend(year, month) {
   };
 }
 
+function deficitCardFields(deficit) {
+  const behind = deficit.deficit > 0;
+  const amount = Math.abs(deficit.deficit);
+  return {
+    icon: ICONS.trending,
+    label: 'Pace Deficit',
+    value: fmtNum(amount),
+    sub: behind ? 'behind pace' : (amount === 0 ? 'on pace' : 'ahead of pace'),
+    accent: behind ? 'warm' : 'accent',
+  };
+}
+
 function renderKpiCards(me, filters) {
   if (!me) { document.getElementById('kpi-grid').innerHTML = ''; return; }
   // A trend only means something when comparing one specific month to the
@@ -1483,9 +1533,14 @@ function renderKpiCards(me, filters) {
   const trend = filters && filters.month !== 'all'
     ? computeMonthOverMonthTrend(me.agent, filters.year, filters.month)
     : null;
+  // Deficit needs a specific month too — it's "behind/ahead of pace
+  // *this* month," which isn't meaningful across "All months."
+  const deficit = filters && filters.month !== 'all'
+    ? computeClaimsDeficit(state.claims, me.agent, filters.year, filters.month)
+    : null;
 
   const cards = [
-    { icon: ICONS.check, label: "Today's Claims", value: fmtNum(me.todayClaims), accent: 'primary' },
+    deficit ? { ...deficitCardFields(deficit) } : { icon: ICONS.trending, label: 'Pace Deficit', value: '—', sub: 'Select a month', accent: 'primary' },
     { icon: ICONS.calendarRange, label: 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), accent: 'accent', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.gauge, label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1), accent: 'violet', trendHtml: trend ? trendHtml(trend.avgClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.calendarCheck, label: 'Attendance', value: fmtPct(me.attendancePct, 1), accent: 'warm', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
@@ -1499,7 +1554,6 @@ function renderKpiCards(me, filters) {
 function renderTeamKpiCards(summaries, filters) {
   const mount = document.getElementById('kpi-grid');
   if (!summaries.length) { mount.innerHTML = ''; return; }
-  const todayClaims = summaries.reduce((s, a) => s + a.todayClaims, 0);
   const mtdClaims = summaries.reduce((s, a) => s + a.mtdClaims, 0);
   const avgClaimsPerDay = summaries.reduce((s, a) => s + a.avgClaimsPerDay, 0) / summaries.length;
   const attendancePct = summaries.reduce((s, a) => s + a.attendancePct, 0) / summaries.length;
@@ -1507,9 +1561,14 @@ function renderTeamKpiCards(summaries, filters) {
   const trend = filters && filters.month !== 'all'
     ? computeTeamMonthOverMonthTrend(filters.year, filters.month)
     : null;
+  const deficit = filters && filters.month !== 'all'
+    ? computeTeamClaimsDeficit(state.claims, summaries.map((s) => s.agent), filters.year, filters.month)
+    : null;
 
   const cards = [
-    { icon: ICONS.check, label: "Team Today's Claims", value: fmtNum(todayClaims), accent: 'primary' },
+    deficit
+      ? { ...deficitCardFields(deficit), label: 'Team Pace Deficit' }
+      : { icon: ICONS.trending, label: 'Team Pace Deficit', value: '—', sub: 'Select a month', accent: 'primary' },
     { icon: ICONS.calendarRange, label: 'Team Month-to-Date', value: fmtNum(mtdClaims), accent: 'accent', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.gauge, label: 'Team Avg Claims / Day', value: fmtNum(avgClaimsPerDay, 1), accent: 'violet', trendHtml: trend ? trendHtml(trend.avgClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.calendarCheck, label: 'Team Attendance', value: fmtPct(attendancePct, 1), accent: 'warm', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
