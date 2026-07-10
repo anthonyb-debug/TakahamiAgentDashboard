@@ -306,6 +306,7 @@
     padding: .55rem .8rem; border-bottom: 1px solid rgb(var(--border));
   }
   table.dc-table thead th.num, table.dc-table tbody td.num { text-align: right; }
+  .dc-logged-at { font-size: .72rem; color: rgb(var(--muted)); white-space: nowrap; }
   table.dc-table tbody td { padding: .5rem .8rem; border-bottom: 1px solid rgb(var(--border) / .5); }
   table.dc-table tbody tr { transition: background .12s ease; }
   table.dc-table tbody tr:hover { background: rgb(var(--ink) / .025); }
@@ -876,14 +877,34 @@ function toIsoDate(v) {
   return `${m[3]}-${month}-${day}`;
 }
 
+// The "Last Updated" column (G) only exists for entries saved through the
+// Log Claims form after the audit-trail feature was added — older rows,
+// or ones edited directly in the sheet, won't have it. Google's export
+// format for a datetime cell can vary, so this tries a real Date parse
+// first and falls back to showing the raw text rather than hiding it.
+function parseLoggedAt(raw) {
+  const trimmed = String(raw ?? '').trim();
+  if (!trimmed) return null;
+  const d = new Date(trimmed);
+  return isNaN(d.getTime()) ? trimmed : d;
+}
+function fmtLoggedAt(loggedAt) {
+  if (!loggedAt) return '—';
+  if (loggedAt instanceof Date) {
+    return loggedAt.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+  return loggedAt;
+}
+
 async function fetchClaims() {
   const res = await fetch(sheetCsvUrl(CONFIG.CLAIMS_SHEET_NAME), { cache: 'no-store' });
   if (!res.ok) throw new Error('Failed to load Claims sheet (' + res.status + ')');
   const rows = parseCsv(await res.text());
-  // Row 0 is the header (Year, Month, Day, Date, Agent, Claims) — skip it.
-  // Note: column C ("Day") in the real sheet is a day-of-week name
-  // ("Thursday"), not a day-of-month number, so the day number is derived
-  // from the parsed Date column instead of read from column C directly.
+  // Row 0 is the header (Year, Month, Day, Date, Agent, Claims, Last
+  // Updated, Updated By) — skip it. Note: column C ("Day") in the real
+  // sheet is a day-of-week name ("Thursday"), not a day-of-month number,
+  // so the day number is derived from the parsed Date column instead of
+  // read from column C directly.
   return rows.slice(1)
     .filter((r) => r.length >= 6 && r[4])
     .map((r) => {
@@ -892,6 +913,7 @@ async function fetchClaims() {
       return {
         year: toNum(r[0]), month: toMonthNumber(r[1]), day: dayOfMonth,
         date: isoDate, agent: String(r[4]).trim(), claims: toNum(r[5]),
+        loggedAt: parseLoggedAt(r[6]),
       };
     });
 }
@@ -1438,6 +1460,7 @@ function renderDailyClaimsTable(claims, selectedAgent, mountId) {
         <td>${r.date}</td>
         <td>${dow}</td>
         <td class="num mono">${fmtNum(r.claims)}</td>
+        <td class="dc-logged-at">${fmtLoggedAt(r.loggedAt)}</td>
       </tr>`;
   }).join('');
 
@@ -1449,8 +1472,8 @@ function renderDailyClaimsTable(claims, selectedAgent, mountId) {
       </div>
       <div class="dc-table-wrap">
         <table class="dc-table">
-          <thead><tr><th>Date</th><th>Day</th><th class="num">Claims</th></tr></thead>
-          <tbody>${tableRows || '<tr><td colspan="3" class="empty-state">No claims for the selected filters.</td></tr>'}</tbody>
+          <thead><tr><th>Date</th><th>Day</th><th class="num">Claims</th><th>Logged At</th></tr></thead>
+          <tbody>${tableRows || '<tr><td colspan="4" class="empty-state">No claims for the selected filters.</td></tr>'}</tbody>
         </table>
       </div>
     </div>`;
@@ -1998,8 +2021,8 @@ function renderLogClaims() {
       // Optimistically reflect the change locally so the dashboard updates
       // immediately, without waiting for the next poll.
       const existing = state.claims.find((c) => c.agent === agent && c.date === dateStr);
-      if (existing) existing.claims = claimsVal;
-      else state.claims.push({ year, month, day, date: dateStr, agent, claims: claimsVal });
+      if (existing) { existing.claims = claimsVal; existing.loggedAt = new Date(); }
+      else state.claims.push({ year, month, day, date: dateStr, agent, claims: claimsVal, loggedAt: new Date() });
 
       statusEl.style.color = cssVarColor('--accent');
       statusEl.textContent = 'Saved ' + new Date().toLocaleTimeString() + (isManager ? ' for ' + agent + '.' : '.');
@@ -2139,6 +2162,7 @@ function renderProfileClaimsLog(agentName) {
         <td>${r.date}</td>
         <td>${dow}</td>
         <td class="num mono">${fmtNum(r.claims)}</td>
+        <td class="dc-logged-at">${fmtLoggedAt(r.loggedAt)}</td>
       </tr>`;
   }).join('');
 
@@ -2146,8 +2170,8 @@ function renderProfileClaimsLog(agentName) {
     <p style="font-size:.7rem; color:rgb(var(--muted)); margin:-.6rem 0 .9rem;">${rows.length} day${rows.length !== 1 ? 's' : ''} &middot; ${fmtNum(total)} total this month</p>
     <div class="dc-table-wrap">
       <table class="dc-table">
-        <thead><tr><th>Date</th><th>Day</th><th class="num">Claims</th></tr></thead>
-        <tbody>${tableRows || '<tr><td colspan="3" class="empty-state">No claims logged for this month.</td></tr>'}</tbody>
+        <thead><tr><th>Date</th><th>Day</th><th class="num">Claims</th><th>Logged At</th></tr></thead>
+        <tbody>${tableRows || '<tr><td colspan="4" class="empty-state">No claims logged for this month.</td></tr>'}</tbody>
       </table>
     </div>`;
 }
