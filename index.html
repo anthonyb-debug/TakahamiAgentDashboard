@@ -991,6 +991,12 @@ function uniqueYears(claims) {
   return y.length ? y : [new Date().getFullYear()];
 }
 
+// Cheap fingerprint of the current agents/years lists, used to decide
+// whether filter controls need rebuilding at all.
+function optionsSignature() {
+  return state.agents.join(',') + '|' + state.years.join(',');
+}
+
 // Walks backward from yesterday (never flags "today" — the day isn't over
 // yet) counting consecutive work days (Mon–Fri; Sat/Sun are rest days and
 // never counted as missing) with no logged claims > 0. Stops as soon as a
@@ -1131,6 +1137,14 @@ const state = {
   identity: null,      // { name, email, picture }
   claims: [],
   attendance: [],
+  // Tracks the last agents/years list each set of filter controls was
+  // built from, so they only get rebuilt when those options actually
+  // change — not on every routine data refresh. Rebuilding native
+  // <select>/<input> elements on every poll was the real cause of the
+  // visible flicker, independent of the chart/card animation fixes.
+  dashFiltersBarSig: null,
+  historyFiltersBarSig: null,
+  profileLogControlsSig: null,
   agents: [],
   years: [],
   view: 'dashboard',    // dashboard | history | profile
@@ -1350,12 +1364,16 @@ function renderMissingEntriesAlert() {
 
 function renderDashboard() {
   const filters = state.dashFilters;
-  document.getElementById('filters-bar').innerHTML = filtersBarHtml(filters, { showWeek: true, showDateRange: true, showExport: true });
-  wireFilterInputs('filters-bar', filters, renderDashboard);
-  document.getElementById('export-btn').addEventListener('click', () => {
-    const { filteredClaims } = applyFilters(state.claims, state.attendance, filters);
-    downloadCsv('takahami-claims-export.csv', claimsToCsv(filteredClaims));
-  });
+  const sig = optionsSignature();
+  if (state.dashFiltersBarSig !== sig) {
+    document.getElementById('filters-bar').innerHTML = filtersBarHtml(filters, { showWeek: true, showDateRange: true, showExport: true });
+    wireFilterInputs('filters-bar', filters, renderDashboard);
+    document.getElementById('export-btn').onclick = () => {
+      const { filteredClaims } = applyFilters(state.claims, state.attendance, filters);
+      downloadCsv('takahami-claims-export.csv', claimsToCsv(filteredClaims));
+    };
+    state.dashFiltersBarSig = sig;
+  }
 
   const { filteredClaims, filteredAttendance } = applyFilters(state.claims, state.attendance, filters);
   renderMissingEntriesAlert();
@@ -1897,8 +1915,12 @@ function renderClaimsDonut(summaries, filters) {
    ========================================================================== */
 function renderHistory() {
   const filters = state.historyFilters;
-  document.getElementById('history-filters-bar').innerHTML = filtersBarHtml(filters, { showWeek: false, showDateRange: false, showExport: false });
-  wireFilterInputs('history-filters-bar', filters, renderHistory);
+  const sig = optionsSignature();
+  if (state.historyFiltersBarSig !== sig) {
+    document.getElementById('history-filters-bar').innerHTML = filtersBarHtml(filters, { showWeek: false, showDateRange: false, showExport: false });
+    wireFilterInputs('history-filters-bar', filters, renderHistory);
+    state.historyFiltersBarSig = sig;
+  }
 
   const { filteredClaims, filteredAttendance } = applyFilters(state.claims, state.attendance, filters);
   renderLineChart('hist-chart-claims', claimsTrendSeries(filteredClaims), 'date', 'claims', 'primary', true);
@@ -2087,11 +2109,14 @@ function renderProfileClaimsLogControls(agentName) {
   const exportBtn = document.getElementById('profile-log-export-btn');
   const filters = state.profileLogFilters;
 
-  const yearOptions = state.years.length ? state.years : [filters.year];
-  yearSelect.innerHTML = yearOptions.map((y) => `<option value="${y}" ${y === filters.year ? 'selected' : ''}>${y}</option>`).join('');
-  monthSelect.innerHTML = MONTH_NAMES.map((m, i) => `<option value="${i + 1}" ${i + 1 === filters.month ? 'selected' : ''}>${m}</option>`).join('');
-  exportBtn.innerHTML = ICONS.download;
-
+  const sig = optionsSignature();
+  if (state.profileLogControlsSig !== sig) {
+    const yearOptions = state.years.length ? state.years : [filters.year];
+    yearSelect.innerHTML = yearOptions.map((y) => `<option value="${y}" ${y === filters.year ? 'selected' : ''}>${y}</option>`).join('');
+    monthSelect.innerHTML = MONTH_NAMES.map((m, i) => `<option value="${i + 1}" ${i + 1 === filters.month ? 'selected' : ''}>${m}</option>`).join('');
+    exportBtn.innerHTML = ICONS.download;
+    state.profileLogControlsSig = sig;
+  }
   monthSelect.onchange = () => { filters.month = Number(monthSelect.value); renderProfileClaimsLog(agentName); };
   yearSelect.onchange = () => { filters.year = Number(yearSelect.value); renderProfileClaimsLog(agentName); };
   exportBtn.onclick = () => {
