@@ -720,24 +720,34 @@ function workdaysElapsedInMonth(year, month) {
 // "Expected so far" is work days elapsed × the agent's own KPI-4 daily
 // target — the same bar computeKpiStreak measures against. Positive
 // deficit = behind that pace, negative = running ahead of it.
-function computeClaimsDeficit(claims, agentName, year, month) {
-  const threshold = getTiersForAgent(agentName).find((t) => t.level === 4).min;
+// Targets whichever tier this agent is actually chasing next (KPI 4 for
+// someone at KPI 3, KPI 5 for someone at KPI 4) rather than a fixed bar —
+// so the number means the same thing regardless of where someone starts.
+// Once already at the top tier, it measures against sustaining that tier.
+function computeClaimsDeficit(claims, agentName, year, month, kpi) {
+  const tiers = getTiersForAgent(agentName);
+  const targetTier = kpi.nextTier || tiers[tiers.length - 1];
+  const threshold = targetTier.min;
   const workdays = workdaysElapsedInMonth(year, month);
   const expected = workdays * threshold;
   const actual = claims.filter((c) => c.agent === agentName && c.year === year && c.month === month).reduce((s, c) => s + c.claims, 0);
-  return { expected, actual, deficit: expected - actual };
+  return { expected, actual, deficit: expected - actual, targetLevel: targetTier.level };
 }
 
-// Same idea, pooled across every agent (each still measured against
-// their own personal KPI-4 target, since Christia's differs from the rest).
-function computeTeamClaimsDeficit(claims, agentNames, year, month) {
+// Same idea, pooled across every agent — but since each agent may be
+// chasing a different tier, the pooled total intentionally doesn't claim
+// a single "for KPI X" (deficitCardFields omits that suffix when
+// targetLevel varies across the group).
+function computeTeamClaimsDeficit(claims, summaries, year, month) {
   let expected = 0, actual = 0;
-  agentNames.forEach((agent) => {
-    const d = computeClaimsDeficit(claims, agent, year, month);
+  const targetLevels = new Set();
+  summaries.forEach((s) => {
+    const d = computeClaimsDeficit(claims, s.agent, year, month, s.kpi);
     expected += d.expected;
     actual += d.actual;
+    targetLevels.add(d.targetLevel);
   });
-  return { expected, actual, deficit: expected - actual };
+  return { expected, actual, deficit: expected - actual, targetLevel: targetLevels.size === 1 ? [...targetLevels][0] : null };
 }
 function calculateKpi(agentName, avgClaimsPerDay) {
   const tiers = getTiersForAgent(agentName);
@@ -757,10 +767,11 @@ function calculateKpi(agentName, avgClaimsPerDay) {
     avgGapToNextTier: nextTier ? Math.max(nextTier.min - avgClaimsPerDay, 0) : 0,
   };
 }
-// "KPI 4 · +8 avg/day for KPI 5", or just the tier label at the top tier.
-function kpiTierSubtext(kpi) {
-  if (!kpi.nextTier) return kpi.tierLabel + ' · Top tier';
-  return `${kpi.tierLabel} · +${Math.ceil(kpi.avgGapToNextTier)} avg/day for KPI ${kpi.nextTier.level}`;
+// Shorter version used where the tier level is already the card's main
+// value, so it isn't repeated — just "what's left to the next one."
+function kpiNextTierSubtext(kpi) {
+  if (!kpi.nextTier) return 'Top tier — keep it up';
+  return `+${Math.ceil(kpi.avgGapToNextTier)} avg/day for KPI ${kpi.nextTier.level}`;
 }
 
 function goalProgress(agentName, todayClaims) {
@@ -1527,11 +1538,12 @@ function computeTeamMonthOverMonthTrend(year, month) {
 function deficitCardFields(deficit) {
   const behind = deficit.deficit > 0;
   const amount = Math.abs(deficit.deficit);
+  const tierSuffix = deficit.targetLevel ? ` for KPI ${deficit.targetLevel}` : '';
   return {
     icon: ICONS.trending,
     label: 'Pace Deficit',
     value: fmtNum(amount),
-    sub: behind ? 'behind pace' : (amount === 0 ? 'on pace' : 'ahead of pace'),
+    sub: behind ? `behind pace${tierSuffix}` : (amount === 0 ? `on pace${tierSuffix}` : `ahead of pace${tierSuffix}`),
     accent: behind ? 'warm' : 'accent',
   };
 }
@@ -1546,7 +1558,7 @@ function renderKpiCards(me, filters) {
   // Deficit needs a specific month too — it's "behind/ahead of pace
   // *this* month," which isn't meaningful across "All months."
   const deficit = filters && filters.month !== 'all'
-    ? computeClaimsDeficit(state.claims, me.agent, filters.year, filters.month)
+    ? computeClaimsDeficit(state.claims, me.agent, filters.year, filters.month, me.kpi)
     : null;
 
   const cards = [
@@ -1554,7 +1566,7 @@ function renderKpiCards(me, filters) {
     { icon: ICONS.calendarRange, label: 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), accent: 'accent', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.gauge, label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1), accent: 'violet', trendHtml: trend ? trendHtml(trend.avgClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.calendarCheck, label: 'Attendance', value: fmtPct(me.attendancePct, 1), accent: 'warm', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
-    { icon: ICONS.award, label: 'Current Rank', value: '#' + me.rank, sub: kpiTierSubtext(me.kpi), accent: 'rose' },
+    { icon: ICONS.award, label: 'KPI Tier', value: me.kpi.level ? `KPI ${me.kpi.level}` : 'Below KPI 3', sub: kpiNextTierSubtext(me.kpi), accent: 'rose' },
   ];
   document.getElementById('kpi-grid').innerHTML = kpiCardsHtml(cards);
 }
@@ -1572,7 +1584,7 @@ function renderTeamKpiCards(summaries, filters) {
     ? computeTeamMonthOverMonthTrend(filters.year, filters.month)
     : null;
   const deficit = filters && filters.month !== 'all'
-    ? computeTeamClaimsDeficit(state.claims, summaries.map((s) => s.agent), filters.year, filters.month)
+    ? computeTeamClaimsDeficit(state.claims, summaries, filters.year, filters.month)
     : null;
 
   const cards = [
