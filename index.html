@@ -211,6 +211,7 @@
   .month-label-btn {
     min-width: 6.5rem; height: 2.15rem; border-radius: .7rem; border: 1px solid rgb(var(--border)); background: rgb(var(--canvas));
     color: rgb(var(--ink)); font-size: .82rem; font-weight: 600; cursor: pointer; padding: 0 .6rem; text-align: center;
+    display: flex; align-items: center; justify-content: center; line-height: 1;
     transition: border-color .15s ease, box-shadow .15s ease, color .15s ease; font-family: inherit;
   }
   .month-label-btn:hover { border-color: rgb(var(--primary) / .4); }
@@ -2087,7 +2088,17 @@ function renderLogClaims() {
 
 function renderLogHistory(agent) {
   const f = state.logHistoryFilters;
-  const monthClaims = state.claims.filter((c) => c.year === f.year && c.month === f.month);
+  // Only count days that were actually worked: skip zero/blank entries and
+  // weekends, since those shouldn't count toward the day total or list
+  // shown here (weekends are treated as rest days everywhere else in the
+  // app too — see computeMissingWorkdays).
+  const monthClaims = state.claims.filter((c) => {
+    if (c.year !== f.year || c.month !== f.month) return false;
+    if (!c.claims) return false;
+    const dow = new Date(c.date + 'T00:00:00').getDay();
+    if (dow === 0 || dow === 6) return false;
+    return true;
+  });
 
   const yearOptions = state.years.map((y) => `<option value="${y}" ${f.year === y ? 'selected' : ''}>${y}</option>`).join('');
   const controlsHtml = `
