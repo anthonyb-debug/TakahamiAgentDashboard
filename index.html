@@ -198,6 +198,24 @@
   }
   select:focus, input:focus { outline: none; border-color: rgb(var(--primary) / .5); box-shadow: 0 0 0 3px rgb(var(--primary) / .12); }
 
+  /* ============ MONTH STEPPER ============ */
+  .month-stepper { display: flex; align-items: center; gap: .3rem; }
+  .month-nav-btn {
+    width: 2.15rem; height: 2.15rem; flex-shrink: 0; border-radius: .7rem; display: flex; align-items: center; justify-content: center;
+    border: 1px solid rgb(var(--border)); background: rgb(var(--canvas)); color: rgb(var(--ink)); cursor: pointer;
+    transition: background .15s ease, border-color .15s ease, color .15s ease, opacity .15s ease;
+  }
+  .month-nav-btn svg { width: .95rem; height: .95rem; }
+  .month-nav-btn:hover:not(:disabled) { background: rgb(var(--primary) / .08); border-color: rgb(var(--primary) / .35); color: rgb(var(--primary)); }
+  .month-nav-btn:disabled { opacity: .35; cursor: not-allowed; }
+  .month-label-btn {
+    min-width: 6.5rem; height: 2.15rem; border-radius: .7rem; border: 1px solid rgb(var(--border)); background: rgb(var(--canvas));
+    color: rgb(var(--ink)); font-size: .82rem; font-weight: 600; cursor: pointer; padding: 0 .6rem; text-align: center;
+    transition: border-color .15s ease, box-shadow .15s ease, color .15s ease; font-family: inherit;
+  }
+  .month-label-btn:hover { border-color: rgb(var(--primary) / .4); }
+  .month-label-btn.is-all { color: rgb(var(--primary)); }
+
   /* ============ KPI GRID ============ */
   .kpi-grid { display: grid; grid-template-columns: repeat(1, 1fr); gap: 1rem; }
   @media (min-width: 640px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
@@ -642,6 +660,8 @@ const ICONS = {
   trending: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
   lineChart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>',
   activity: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
+  chevronLeft: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
+  chevronRight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
 };
 
 /* ==========================================================================
@@ -1329,7 +1349,12 @@ function filtersBarHtml(filters, opts) {
     <div class="field"><label>Year</label>
       <select data-filter="year">${yearOptions}</select></div>
     <div class="field"><label>Month</label>
-      <select data-filter="month"><option value="all" ${filters.month === 'all' ? 'selected' : ''}>All months</option>${monthOptions}</select></div>
+      <div class="month-stepper">
+        <button type="button" class="month-nav-btn" data-month-nav="prev" aria-label="Previous month">${ICONS.chevronLeft}</button>
+        <button type="button" class="month-label-btn ${filters.month === 'all' ? 'is-all' : ''}" data-month-nav="toggle-all">${filters.month === 'all' ? 'All months' : MONTH_NAMES[filters.month - 1]}</button>
+        <button type="button" class="month-nav-btn" data-month-nav="next" aria-label="Next month">${ICONS.chevronRight}</button>
+      </div>
+      <select data-filter="month" style="display:none" tabindex="-1" aria-hidden="true"><option value="all" ${filters.month === 'all' ? 'selected' : ''}>All months</option>${monthOptions}</select></div>
     <div class="field"><label>Agent</label>
       <select data-filter="agent"><option value="all" ${filters.agent === 'all' ? 'selected' : ''}>All agents</option>${agentOptions}</select></div>
     ${opts.showWeek ? `<div class="field"><label>Week</label>
@@ -1384,6 +1409,7 @@ function renderDashboard() {
   if (state.dashFiltersBarSig !== sig) {
     document.getElementById('filters-bar').innerHTML = filtersBarHtml(filters, { showWeek: true, showDateRange: true, showExport: true });
     wireFilterInputs('filters-bar', filters, renderDashboard);
+    wireMonthStepper('filters-bar', filters, renderDashboard);
     document.getElementById('export-btn').onclick = () => {
       const { filteredClaims } = applyFilters(state.claims, state.attendance, filters);
       downloadCsv('takahami-claims-export.csv', claimsToCsv(filteredClaims));
@@ -1936,6 +1962,7 @@ function renderHistory() {
   if (state.historyFiltersBarSig !== sig) {
     document.getElementById('history-filters-bar').innerHTML = filtersBarHtml(filters, { showWeek: false, showDateRange: false, showExport: false });
     wireFilterInputs('history-filters-bar', filters, renderHistory);
+    wireMonthStepper('history-filters-bar', filters, renderHistory);
     state.historyFiltersBarSig = sig;
   }
 
@@ -2179,6 +2206,30 @@ function renderProfileClaimsLog(agentName) {
 /* ==========================================================================
    FILTER WIRING
    ========================================================================== */
+// Week and the From/To date range only make sense relative to whichever
+// Year/Month is currently selected. Without this, switching Month while an
+// old Week (or a leftover date range from a previous month) is still set
+// silently ANDs against the new period and can zero out or clip data that's
+// actually there — looking like the month filter is broken when it's really
+// a stale, more-granular filter underneath.
+function resetGranularFilters(containerId, filters) {
+  if ('week' in filters) {
+    filters.week = 'all';
+    const weekEl = document.querySelector(`#${containerId} [data-filter="week"]`);
+    if (weekEl) weekEl.value = 'all';
+  }
+  if ('dateFrom' in filters) {
+    filters.dateFrom = undefined;
+    const fromEl = document.querySelector(`#${containerId} [data-filter="dateFrom"]`);
+    if (fromEl) fromEl.value = '';
+  }
+  if ('dateTo' in filters) {
+    filters.dateTo = undefined;
+    const toEl = document.querySelector(`#${containerId} [data-filter="dateTo"]`);
+    if (toEl) toEl.value = '';
+  }
+}
+
 function wireFilterInputs(containerId, filters, rerender) {
   document.querySelectorAll(`#${containerId} [data-filter]`).forEach((el) => {
     el.addEventListener('change', () => {
@@ -2189,32 +2240,71 @@ function wireFilterInputs(containerId, filters, rerender) {
       }
       if ((key === 'dateFrom' || key === 'dateTo') && value === '') value = undefined;
       filters[key] = value;
-      // Week and the From/To date range only make sense relative to the
-      // Year/Month currently selected. Without this, switching Month while
-      // an old Week (or a leftover date range from a previous month) is
-      // still set silently ANDs against the new period and can zero out
-      // or clip data that's actually there — looking like the month filter
-      // is broken when it's really a stale, more-granular filter underneath.
-      if (key === 'year' || key === 'month') {
-        if ('week' in filters) {
-          filters.week = 'all';
-          const weekEl = document.querySelector(`#${containerId} [data-filter="week"]`);
-          if (weekEl) weekEl.value = 'all';
-        }
-        if ('dateFrom' in filters) {
-          filters.dateFrom = undefined;
-          const fromEl = document.querySelector(`#${containerId} [data-filter="dateFrom"]`);
-          if (fromEl) fromEl.value = '';
-        }
-        if ('dateTo' in filters) {
-          filters.dateTo = undefined;
-          const toEl = document.querySelector(`#${containerId} [data-filter="dateTo"]`);
-          if (toEl) toEl.value = '';
-        }
-      }
+      if (key === 'year' || key === 'month') resetGranularFilters(containerId, filters);
       rerender();
     });
   });
+}
+
+// Wires the Month stepper's ‹ label › buttons. The hidden native <select
+// data-filter="month"> stays in sync so export/filter code that reads it
+// (and anything else keyed off that markup) keeps working unchanged.
+function wireMonthStepper(containerId, filters, rerender) {
+  const prevBtn = document.querySelector(`#${containerId} [data-month-nav="prev"]`);
+  const nextBtn = document.querySelector(`#${containerId} [data-month-nav="next"]`);
+  const labelBtn = document.querySelector(`#${containerId} [data-month-nav="toggle-all"]`);
+  const hiddenSelect = document.querySelector(`#${containerId} select[data-filter="month"]`);
+  const yearSelect = document.querySelector(`#${containerId} select[data-filter="year"]`);
+  if (!prevBtn || !nextBtn || !labelBtn) return;
+
+  function syncUI() {
+    labelBtn.textContent = filters.month === 'all' ? 'All months' : MONTH_NAMES[filters.month - 1];
+    labelBtn.classList.toggle('is-all', filters.month === 'all');
+    const atMinYear = filters.month !== 'all' && filters.month === 1 && !state.years.includes(filters.year - 1);
+    const atMaxYear = filters.month !== 'all' && filters.month === 12 && !state.years.includes(filters.year + 1);
+    prevBtn.disabled = atMinYear;
+    nextBtn.disabled = atMaxYear;
+  }
+
+  function commit(newMonth, newYear) {
+    filters.month = newMonth;
+    if (hiddenSelect) hiddenSelect.value = newMonth === 'all' ? 'all' : String(newMonth);
+    if (newYear !== undefined && newYear !== filters.year) {
+      filters.year = newYear;
+      if (yearSelect) yearSelect.value = String(newYear);
+    }
+    resetGranularFilters(containerId, filters);
+    syncUI();
+    rerender();
+  }
+
+  // Stepping past Dec/Jan should carry over into the adjacent year, but
+  // only if that year actually has data — otherwise stop at the edge
+  // instead of pointing the Year filter at a year with nothing in it.
+  function step(dir) {
+    if (filters.month === 'all') {
+      commit(new Date().getMonth() + 1);
+      return;
+    }
+    let m = filters.month + dir;
+    let y = filters.year;
+    if (m < 1) { m = 12; y -= 1; }
+    if (m > 12) { m = 1; y += 1; }
+    if (y !== filters.year && !state.years.includes(y)) return;
+    commit(m, y);
+  }
+
+  prevBtn.onclick = () => step(-1);
+  nextBtn.onclick = () => step(1);
+  labelBtn.onclick = () => {
+    commit(filters.month === 'all' ? (new Date().getMonth() + 1) : 'all');
+  };
+
+  // Also keep the stepper in sync if the underlying Year <select> changes
+  // directly (that still goes through wireFilterInputs, not this file).
+  if (yearSelect) yearSelect.addEventListener('change', syncUI);
+
+  syncUI();
 }
 
 /* ==========================================================================
