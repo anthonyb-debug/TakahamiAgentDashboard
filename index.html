@@ -2189,6 +2189,29 @@ function wireFilterInputs(containerId, filters, rerender) {
       }
       if ((key === 'dateFrom' || key === 'dateTo') && value === '') value = undefined;
       filters[key] = value;
+      // Week and the From/To date range only make sense relative to the
+      // Year/Month currently selected. Without this, switching Month while
+      // an old Week (or a leftover date range from a previous month) is
+      // still set silently ANDs against the new period and can zero out
+      // or clip data that's actually there — looking like the month filter
+      // is broken when it's really a stale, more-granular filter underneath.
+      if (key === 'year' || key === 'month') {
+        if ('week' in filters) {
+          filters.week = 'all';
+          const weekEl = document.querySelector(`#${containerId} [data-filter="week"]`);
+          if (weekEl) weekEl.value = 'all';
+        }
+        if ('dateFrom' in filters) {
+          filters.dateFrom = undefined;
+          const fromEl = document.querySelector(`#${containerId} [data-filter="dateFrom"]`);
+          if (fromEl) fromEl.value = '';
+        }
+        if ('dateTo' in filters) {
+          filters.dateTo = undefined;
+          const toEl = document.querySelector(`#${containerId} [data-filter="dateTo"]`);
+          if (toEl) toEl.value = '';
+        }
+      }
       rerender();
     });
   });
