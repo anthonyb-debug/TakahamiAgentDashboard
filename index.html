@@ -317,6 +317,10 @@
   .dc-head h3 { margin: 0; font-size: 1.05rem; font-weight: 700; letter-spacing: -.01em; }
   .dc-head span { font-size: .68rem; color: rgb(var(--muted)); }
   .dc-table-wrap { max-height: 320px; overflow-y: auto; border-radius: .9rem; border: 1px solid rgb(var(--border) / .7); }
+  .dc-table-wrap-full { max-height: none; overflow-y: visible; border-radius: .9rem; border: 1px solid rgb(var(--border) / .7); }
+  .dc-history-controls { display: flex; align-items: center; gap: .35rem; }
+  .dc-history-controls .month-label-btn { min-width: 5.4rem; cursor: default; }
+  .dc-history-controls select { padding: .5rem .6rem; font-size: .78rem; }
   table.dc-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
   table.dc-table thead th {
     position: sticky; top: 0; background: rgb(var(--surface)); text-align: left; font-size: .66rem;
@@ -1469,7 +1473,7 @@ function renderDashboard() {
 // Shows a day-by-day claims breakdown for a single agent — only makes
 // sense once the Agent filter narrows down to one person, since it'd
 // otherwise be a mixed, meaningless list across everyone.
-function renderDailyClaimsTable(claims, selectedAgent, mountId) {
+function renderDailyClaimsTable(claims, selectedAgent, mountId, opts = {}) {
   const mount = document.getElementById(mountId);
   if (selectedAgent === 'all') { mount.innerHTML = ''; return; }
 
@@ -1491,16 +1495,20 @@ function renderDailyClaimsTable(claims, selectedAgent, mountId) {
       </tr>`;
   }).join('');
 
+  const emptyMessage = opts.emptyMessage || 'No claims for the selected filters.';
+  const wrapClass = opts.scrollable === false ? 'dc-table-wrap-full' : 'dc-table-wrap';
+
   mount.innerHTML = `
     <div class="glass card">
       <div class="dc-head">
         <h3>Daily Claims — ${selectedAgent}</h3>
+        ${opts.controlsHtml || ''}
         <span>${rows.length} day${rows.length !== 1 ? 's' : ''} &middot; ${fmtNum(total)} total</span>
       </div>
-      <div class="dc-table-wrap">
+      <div class="${wrapClass}">
         <table class="dc-table">
           <thead><tr><th>Date</th><th>Day</th><th class="num">Claims</th><th>Logged At</th></tr></thead>
-          <tbody>${tableRows || '<tr><td colspan="4" class="empty-state">No claims for the selected filters.</td></tr>'}</tbody>
+          <tbody>${tableRows || `<tr><td colspan="4" class="empty-state">${emptyMessage}</td></tr>`}</tbody>
         </table>
       </div>
     </div>`;
@@ -2078,7 +2086,51 @@ function renderLogClaims() {
 }
 
 function renderLogHistory(agent) {
-  renderDailyClaimsTable(state.claims, agent, 'log-history-mount');
+  const f = state.logHistoryFilters;
+  const monthClaims = state.claims.filter((c) => c.year === f.year && c.month === f.month);
+
+  const yearOptions = state.years.map((y) => `<option value="${y}" ${f.year === y ? 'selected' : ''}>${y}</option>`).join('');
+  const controlsHtml = `
+    <div class="dc-history-controls">
+      <button type="button" class="month-nav-btn" id="log-history-prev" aria-label="Previous month">${ICONS.chevronLeft}</button>
+      <span class="month-label-btn">${MONTH_NAMES[f.month - 1]}</span>
+      <button type="button" class="month-nav-btn" id="log-history-next" aria-label="Next month">${ICONS.chevronRight}</button>
+      <select id="log-history-year-select">${yearOptions}</select>
+    </div>`;
+
+  renderDailyClaimsTable(monthClaims, agent, 'log-history-mount', {
+    scrollable: false,
+    controlsHtml,
+    emptyMessage: `No claims logged for ${MONTH_NAMES[f.month - 1]} ${f.year}.`,
+  });
+
+  const prevBtn = document.getElementById('log-history-prev');
+  const nextBtn = document.getElementById('log-history-next');
+  const yearSelect = document.getElementById('log-history-year-select');
+  if (!prevBtn || !nextBtn || !yearSelect) return; // agent === 'all': table didn't render
+
+  function step(dir) {
+    let m = f.month + dir;
+    let y = f.year;
+    if (m < 1) { m = 12; y -= 1; }
+    if (m > 12) { m = 1; y += 1; }
+    if (y !== f.year && !state.years.includes(y)) return;
+    f.month = m;
+    f.year = y;
+    renderLogHistory(agent);
+  }
+
+  const atMinYear = f.month === 1 && !state.years.includes(f.year - 1);
+  const atMaxYear = f.month === 12 && !state.years.includes(f.year + 1);
+  prevBtn.disabled = atMinYear;
+  nextBtn.disabled = atMaxYear;
+
+  prevBtn.onclick = () => step(-1);
+  nextBtn.onclick = () => step(1);
+  yearSelect.onchange = () => {
+    f.year = Number(yearSelect.value);
+    renderLogHistory(agent);
+  };
 }
 
 function renderProfile() {
@@ -2359,6 +2411,7 @@ function enterApp(identity) {
   state.dashFilters = { year: currentYear, month: currentMonth, agent: 'all', week: 'all' };
   state.historyFilters = { year: currentYear, month: 'all', agent: 'all', week: 'all' };
   state.profileLogFilters = { year: currentYear, month: currentMonth };
+  state.logHistoryFilters = { year: currentYear, month: currentMonth };
 
   renderNav();
   renderTopbarUser();
