@@ -256,6 +256,24 @@
   .goal-eyebrow svg { width: .9rem; height: .9rem; color: rgb(var(--warm)); }
   .goal-title { font-size: 1.4rem; font-weight: 700; margin: 0; }
   .goal-detail { font-size: .85rem; color: rgb(var(--muted)); margin: .35rem 0 0; }
+
+  .calc-card { display: flex; flex-direction: column; gap: .55rem; }
+  .calc-detail { font-size: .85rem; color: rgb(var(--muted)); margin: 0 0 .3rem; }
+  .calc-empty { font-size: .82rem; color: rgb(var(--muted)); margin: 0; }
+  .calc-tier-row {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem;
+    padding: .7rem .85rem; border-radius: .85rem; background: rgb(var(--ink) / .025); border: 1px solid rgb(var(--border));
+  }
+  .calc-tier-label { display: flex; flex-direction: column; gap: .3rem; }
+  .calc-tier-badge {
+    align-self: flex-start; font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+    color: rgb(var(--primary)); background: rgb(var(--primary) / .1); border-radius: .4rem; padding: .15rem .5rem;
+  }
+  .calc-tier-sub { font-size: .78rem; color: rgb(var(--muted)); }
+  .calc-tier-status { font-size: .82rem; text-align: right; }
+  .calc-status-good { color: rgb(var(--accent)); font-weight: 600; }
+  .calc-status-warm { color: rgb(var(--ink)); }
+  .calc-status-bad { color: rgb(var(--muted)); font-weight: 600; }
   .ring-wrap { position: relative; display: flex; align-items: center; justify-content: center; width: 148px; height: 148px; }
   .ring-wrap svg { transform: rotate(-90deg); }
   .ring-center { position: absolute; display: flex; flex-direction: column; align-items: center; }
@@ -475,6 +493,7 @@
           <div id="goal-progress-mount"></div>
           <div id="attendance-goal-mount"></div>
         </div>
+        <div id="kpi-calculator-mount" style="margin-top:1.1rem;"></div>
         <div id="daily-claims-mount" style="margin-top:1.1rem;"></div>
 
         <div class="two-col" style="margin-top:1.1rem;">
@@ -664,6 +683,7 @@ const ICONS = {
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
   trophy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3a2 2 0 0 1-2 4M7 5H4a2 2 0 0 0 2 4"/></svg>',
   trending: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
+  calculator: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="11" x2="8" y2="11.01"/><line x1="12" y1="11" x2="12" y2="11.01"/><line x1="16" y1="11" x2="16" y2="11.01"/><line x1="8" y1="15" x2="8" y2="15.01"/><line x1="12" y1="15" x2="12" y2="15.01"/><line x1="16" y1="15" x2="16" y2="15.01"/><line x1="8" y1="19" x2="8" y2="19.01"/><line x1="12" y1="19" x2="12" y2="19.01"/></svg>',
   lineChart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>',
   activity: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
   chevronLeft: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
@@ -770,6 +790,45 @@ function computeTeamClaimsDeficit(claims, summaries, year, month) {
   });
   return { expected, actual, deficit: expected - actual, targetLevel: targetLevels.size === 1 ? [...targetLevels][0] : null };
 }
+// Same idea as workdaysElapsedInMonth but for the *whole* month (not
+// clipped to today) — needed to project a full-month target rather than
+// just what's expected so far.
+function workdaysInMonth(year, month) {
+  const daysInMonth = new Date(year, month, 0).getDate();
+  let count = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = new Date(year, month - 1, d).getDay();
+    if (dow !== 0 && dow !== 6) count++;
+  }
+  return count;
+}
+
+// "What do I need to hit KPI 4 / KPI 5 this month?" — projects the whole
+// month's workdays × that tier's daily threshold as the total needed, nets
+// off what's already been logged, and spreads the remainder over the
+// workdays left. Mirrors computeClaimsDeficit's target math so the two
+// stay consistent with each other.
+function computeTierCalculator(agentName, year, month, mtdClaims, tierLevel) {
+  const tier = getTiersForAgent(agentName).find((t) => t.level === tierLevel);
+  if (!tier) return null;
+  const totalWorkdays = workdaysInMonth(year, month);
+  const remainingWorkdays = Math.max(totalWorkdays - workdaysElapsedInMonth(year, month), 0);
+  const neededTotal = tier.min * totalWorkdays;
+  const neededRemaining = Math.max(neededTotal - mtdClaims, 0);
+  return {
+    level: tierLevel,
+    threshold: tier.min,
+    remainingWorkdays,
+    neededTotal,
+    neededRemaining,
+    achieved: neededRemaining === 0,
+    avgPerDayNeeded: remainingWorkdays > 0 ? neededRemaining / remainingWorkdays : 0,
+    // Only possible to still miss it when days are left; if none are left
+    // and it's not achieved, the month is already decided.
+    reachable: remainingWorkdays > 0 || neededRemaining === 0,
+  };
+}
+
 function calculateKpi(agentName, avgClaimsPerDay) {
   const tiers = getTiersForAgent(agentName);
   const rounded = Math.round(avgClaimsPerDay);
@@ -1456,6 +1515,7 @@ function renderDashboard() {
     renderTeamKpiCards(summaries, filters);
     document.getElementById('goal-progress-mount').innerHTML = '';
     document.getElementById('attendance-goal-mount').innerHTML = '';
+    renderKpiCalculatorCard(null, filters);
   } else if (isManager) {
     // A manager has drilled into one specific agent — show that agent's
     // own numbers (same card set an agent sees for themselves), not a
@@ -1463,12 +1523,14 @@ function renderDashboard() {
     renderKpiCards(summaries[0], filters);
     renderGoalProgress(summaries[0]);
     renderAttendanceGoalCard(summaries[0]);
+    renderKpiCalculatorCard(summaries[0], filters);
   } else {
     const myAgentName = matchAgentName();
     const me = summaries.find((s) => s.agent === myAgentName) || summaries[0];
     renderKpiCards(me, filters);
     renderGoalProgress(me);
     renderAttendanceGoalCard(me);
+    renderKpiCalculatorCard(me, filters);
   }
 
   renderDailyClaimsTable(filteredClaims, filters.agent, 'daily-claims-mount');
@@ -1764,6 +1826,49 @@ function renderAttendanceGoalCard(me) {
           <span class="ring-sub mono">${fmtPct(current, 1)}/${target}%</span>
         </div>
       </div>
+    </div>`;
+}
+
+function renderKpiCalculatorCard(me, filters) {
+  const mount = document.getElementById('kpi-calculator-mount');
+  if (!mount) return;
+  if (!me) { mount.innerHTML = ''; return; }
+  if (!filters || filters.month === 'all') {
+    mount.innerHTML = `
+      <div class="glass card calc-card">
+        <h3 class="chart-title">${ICONS.calculator}Claims Needed Calculator</h3>
+        <p class="calc-empty">Select a specific month to see what's needed to hit KPI 4 or KPI 5.</p>
+      </div>`;
+    return;
+  }
+
+  const rowHtml = (level) => {
+    const c = computeTierCalculator(me.agent, filters.year, filters.month, me.mtdClaims, level);
+    if (!c) return '';
+    let statusHtml;
+    if (c.achieved) {
+      statusHtml = `<span class="calc-status calc-status-good">On pace — no more needed</span>`;
+    } else if (!c.reachable) {
+      statusHtml = `<span class="calc-status calc-status-bad">No workdays left this month</span>`;
+    } else {
+      statusHtml = `<span class="calc-status calc-status-warm"><span class="mono" style="font-weight:700;">${fmtNum(Math.ceil(c.avgPerDayNeeded), 0)}</span>/day for the remaining <span class="mono" style="font-weight:700;">${c.remainingWorkdays}</span> workday${c.remainingWorkdays === 1 ? '' : 's'}</span>`;
+    }
+    return `
+      <div class="calc-tier-row">
+        <div class="calc-tier-label">
+          <span class="calc-tier-badge">KPI ${level}</span>
+          <span class="calc-tier-sub">${fmtNum(c.threshold)}/day avg &middot; ${fmtNum(c.neededTotal)} total this month</span>
+        </div>
+        <div class="calc-tier-status">${statusHtml}</div>
+      </div>`;
+  };
+
+  mount.innerHTML = `
+    <div class="glass card calc-card">
+      <h3 class="chart-title">${ICONS.calculator}Claims Needed Calculator</h3>
+      <p class="calc-detail">You've logged <span class="mono" style="font-weight:700;color:rgb(var(--ink));">${fmtNum(me.mtdClaims)}</span> claims so far this month.</p>
+      ${rowHtml(4)}
+      ${rowHtml(5)}
     </div>`;
 }
 
