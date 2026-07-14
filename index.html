@@ -1519,7 +1519,7 @@ function renderDailyClaimsTable(claims, selectedAgent, mountId, opts = {}) {
 
   const rows = claims
     .filter((c) => c.agent === selectedAgent)
-    .sort((a, b) => b.date.localeCompare(a.date)); // most recent first
+    .sort((a, b) => a.date.localeCompare(b.date)); // oldest first
 
   const total = rows.reduce((s, r) => s + r.claims, 0);
   const best = rows.reduce((max, r) => Math.max(max, r.claims), 0);
