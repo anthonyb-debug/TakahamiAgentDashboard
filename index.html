@@ -846,8 +846,27 @@ function cssVarColor(name, alpha) {
   const val = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   return alpha !== undefined ? `rgb(${val} / ${alpha})` : `rgb(${val})`;
 }
+// Agents are stored as "Family, Given [Middle]" (matching the Prod sheet's
+// Agent column exactly); managers are stored as a plain first name. This
+// pulls out just the given name regardless of which format `name` is in.
+function firstNameOf(name) {
+  if (!name) return '';
+  if (name.includes(',')) {
+    const given = name.split(',')[1] || '';
+    return given.trim().split(/\s+/)[0] || '';
+  }
+  return name.trim().split(/\s+/)[0] || '';
+}
+
 function initialsOf(name) {
-  return (name || '').trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
+  if (!name) return '';
+  if (name.includes(',')) {
+    const [family, given] = name.split(',');
+    const g = (given || '').trim().split(/\s+/)[0] || '';
+    const f = (family || '').trim().split(/\s+/)[0] || '';
+    return [g[0], f[0]].filter(Boolean).join('').toUpperCase();
+  }
+  return name.trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
 }
 function avatarHtml(name, photo) {
   return photo ? `<img src="${photo}" alt="${name || ''}">` : initialsOf(name);
@@ -1328,7 +1347,7 @@ function initTheme() {
 function renderTopbarUser() {
   document.getElementById('user-avatar').innerHTML = avatarHtml(state.identity.name, state.identity.picture);
   document.getElementById('user-name').textContent = state.identity.name || '';
-  document.getElementById('greeting').textContent = 'Welcome back' + (state.identity.name ? ', ' + state.identity.name.split(' ')[0] : '');
+  document.getElementById('greeting').textContent = 'Welcome back' + (state.identity.name ? ', ' + firstNameOf(state.identity.name) : '');
   document.getElementById('signout-btn').innerHTML = ICONS.logout;
   document.getElementById('signout-btn').addEventListener('click', signOut);
 }
