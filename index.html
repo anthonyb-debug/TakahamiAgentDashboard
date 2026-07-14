@@ -1234,6 +1234,7 @@ const state = {
   profileLogFilters: null,
   charts: {},           // Chart.js instances keyed by canvas id
   pollHandle: null,
+  tokenRefreshHandle: null,
 };
 
 /* ==========================================================================
@@ -1252,15 +1253,33 @@ function decodeJwt(token) {
   return JSON.parse(json);
 }
 
+// Resolved/rejected by handleCredentialResponse or the notification
+// callback below whenever a silent refresh (see refreshIdTokenSilently)
+// is in flight, so both paths can settle the same promise.
+let pendingTokenRefresh = null;
+
 function handleCredentialResponse(response) {
   const payload = decodeJwt(response.credential);
   const email = payload.email || '';
   const domain = email.split('@')[1]?.toLowerCase();
 
   if (domain !== CONFIG.ALLOWED_DOMAIN.toLowerCase()) {
+    if (pendingTokenRefresh) { pendingTokenRefresh.reject(new Error('Wrong account offered during refresh.')); pendingTokenRefresh = null; }
     document.getElementById('login-error').textContent =
       "That account isn't part of the allianceglobalsolutions.com workspace.";
     document.getElementById('login-error').classList.remove('hidden');
+    return;
+  }
+
+  // Already signed in as this same person — this is a token renewal
+  // (background refresh, or a retry after "Sign in again"), not a fresh
+  // login. Swap in the new token only, so the current view, filters, and
+  // poll timer aren't reset the way a full enterApp() would reset them.
+  if (state.identity && state.identity.email && state.identity.email.toLowerCase() === email.toLowerCase()) {
+    state.identity.idToken = response.credential;
+    state.identity.picture = payload.picture || state.identity.picture;
+    localStorage.setItem('takahami_identity', JSON.stringify(state.identity));
+    if (pendingTokenRefresh) { pendingTokenRefresh.resolve(response.credential); pendingTokenRefresh = null; }
     return;
   }
 
@@ -1268,6 +1287,7 @@ function handleCredentialResponse(response) {
   const managerName = agentName ? null : managerForEmail(email);
 
   if (!agentName && !managerName) {
+    if (pendingTokenRefresh) { pendingTokenRefresh.reject(new Error('Account not recognized during refresh.')); pendingTokenRefresh = null; }
     document.getElementById('login-error').textContent =
       "That account isn't set up as an agent or manager on this dashboard. Contact your manager if this seems wrong.";
     document.getElementById('login-error').classList.remove('hidden');
@@ -1286,6 +1306,99 @@ function handleCredentialResponse(response) {
   enterApp(identity);
 }
 
+// True once the token is already expired or within `bufferSeconds` of
+// expiring — checked before every write so a save never gets attempted
+// with a token that's about to be (or already) rejected server-side.
+function isTokenExpiringSoon(idToken, bufferSeconds = 300) {
+  try {
+    const payload = decodeJwt(idToken);
+    if (!payload.exp) return true;
+    return (payload.exp * 1000) - Date.now() < bufferSeconds * 1000;
+  } catch (e) {
+    return true;
+  }
+}
+
+// Sets up (or reuses) the promise that handleCredentialResponse resolves
+// once Google calls back with a fresh token — shared by the silent path
+// below and the manual "Sign in again" button, which don't invoke Google
+// the same way but both need to be woken up by the same callback.
+function createPendingTokenRefresh(timeoutMs) {
+  if (pendingTokenRefresh) return pendingTokenRefresh.promise;
+  let settled = false;
+  const promise = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      if (!settled) { settled = true; pendingTokenRefresh = null; reject(new Error('Timed out waiting for sign-in.')); }
+    }, timeoutMs);
+    pendingTokenRefresh = {
+      resolve: (token) => { if (!settled) { settled = true; clearTimeout(timer); resolve(token); } },
+      reject: (err) => { if (!settled) { settled = true; clearTimeout(timer); reject(err); } },
+      promise: null,
+    };
+  });
+  pendingTokenRefresh.promise = promise;
+  return promise;
+}
+
+// Asks Google One Tap for a fresh ID token without any visible sign-in
+// screen, as long as the browser still has an active Google session for
+// this account. Resolves with the new token via handleCredentialResponse
+// above; rejects if One Tap couldn't display or was skipped (e.g. third-
+// party cookies blocked, or the user dismissed it too many times
+// recently) so the caller can fall back to an explicit "Sign in again".
+function refreshIdTokenSilently(timeoutMs = 8000) {
+  if (pendingTokenRefresh) return pendingTokenRefresh.promise;
+  if (!window.google || !google.accounts || !google.accounts.id) {
+    return Promise.reject(new Error('Google Sign-In hasn\'t loaded yet.'));
+  }
+  const promise = createPendingTokenRefresh(timeoutMs);
+  try {
+    google.accounts.id.prompt((notification) => {
+      const notDisplayed = notification.isNotDisplayed && notification.isNotDisplayed();
+      const skipped = notification.isSkippedMoment && notification.isSkippedMoment();
+      if ((notDisplayed || skipped) && pendingTokenRefresh) {
+        const reason = (notification.getNotDisplayedReason && notification.getNotDisplayedReason())
+          || (notification.getSkippedReason && notification.getSkippedReason())
+          || 'Silent sign-in was not available.';
+        pendingTokenRefresh.reject(new Error(reason));
+        pendingTokenRefresh = null;
+      }
+      // Otherwise: still in progress — handleCredentialResponse will
+      // resolve this same promise once Google calls back with a token.
+    });
+  } catch (e) {
+    if (pendingTokenRefresh) { pendingTokenRefresh.reject(e); pendingTokenRefresh = null; }
+  }
+
+  return promise;
+}
+
+// Ensures state.identity.idToken is fresh before a write request. Only
+// touches the network/refresh path when the token's actually close to
+// expiring, so this is cheap to call before every save.
+async function ensureFreshIdToken() {
+  if (!isTokenExpiringSoon(state.identity.idToken)) return state.identity.idToken;
+  return refreshIdTokenSilently();
+}
+
+// Fallback for when silent refresh isn't possible — renders Google's own
+// sign-in button inline (the same mechanism as the login screen, so it's
+// guaranteed to work regardless of whatever blocked the silent path) and
+// calls onRenewed() once the person completes it and the token updates.
+function showReauthPrompt(statusEl, onRenewed) {
+  statusEl.innerHTML = 'Your sign-in needs to be renewed — <span id="log-reauth-btn-mount" style="display:inline-block; vertical-align:middle; margin-left:.35rem;"></span>';
+  const mount = document.getElementById('log-reauth-btn-mount');
+  const waitPromise = createPendingTokenRefresh(120000); // give them a couple minutes to click through
+  if (window.google && google.accounts && google.accounts.id && mount) {
+    google.accounts.id.renderButton(mount, { theme: 'outline', size: 'medium', shape: 'pill', text: 'signin_with', width: 200 });
+  } else if (mount) {
+    mount.textContent = 'Reload the page to sign in again.';
+  }
+  waitPromise.then(() => onRenewed()).catch(() => {
+    statusEl.textContent = "Couldn't renew your sign-in — try reloading the page.";
+  });
+}
+
 function initGoogleSignIn() {
   if (!window.google || !google.accounts || !google.accounts.id) {
     setTimeout(initGoogleSignIn, 200);
@@ -1295,6 +1408,7 @@ function initGoogleSignIn() {
     client_id: CONFIG.GOOGLE_CLIENT_ID,
     callback: handleCredentialResponse,
     hd: CONFIG.ALLOWED_DOMAIN,
+    auto_select: true,
   });
   google.accounts.id.renderButton(document.getElementById('g_id_signin_container'), {
     theme: 'filled_black', size: 'large', shape: 'pill', text: 'continue_with', width: 320,
@@ -2103,35 +2217,58 @@ function renderLogClaims() {
     const d = new Date(dateStr + 'T00:00:00');
     const year = d.getFullYear(), month = d.getMonth() + 1, day = d.getDate();
 
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Saving…';
-    statusEl.style.color = cssVarColor('--muted');
-    statusEl.textContent = 'Saving to your Google Sheet…';
+    async function attemptSave() {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Saving…';
+      statusEl.style.color = cssVarColor('--muted');
+      statusEl.textContent = 'Saving to your Google Sheet…';
 
-    try {
-      await writeClaimsToSheet(year, month, day, agent, claimsVal, state.identity.idToken);
+      try {
+        await ensureFreshIdToken();
+      } catch (refreshErr) {
+        // Silent refresh wasn't possible (blocked cookies, dismissed
+        // prompt, etc.) — offer the guaranteed-to-work manual button
+        // instead of failing the save outright.
+        console.warn('Silent token refresh unavailable, falling back to manual sign-in.', refreshErr);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Save to Sheet';
+        showReauthPrompt(statusEl, attemptSave);
+        return;
+      }
 
-      // Optimistically reflect the change locally so the dashboard updates
-      // immediately, without waiting for the next poll.
-      const existing = state.claims.find((c) => c.agent === agent && c.date === dateStr);
-      if (existing) { existing.claims = claimsVal; existing.loggedAt = new Date(); }
-      else state.claims.push({ year, month, day, date: dateStr, agent, claims: claimsVal, loggedAt: new Date() });
+      try {
+        await writeClaimsToSheet(year, month, day, agent, claimsVal, state.identity.idToken);
 
-      statusEl.style.color = cssVarColor('--accent');
-      statusEl.textContent = 'Saved ' + new Date().toLocaleTimeString() + (isManager ? ' for ' + agent + '.' : '.');
-      renderLogHistory(agent);
-      updateLogCurrentValueNote();
-    } catch (err) {
-      console.error('Failed to save claims', err);
-      statusEl.style.color = cssVarColor('--warm');
-      // Temporarily showing the full message (even for AUTH_EXPIRED) so we
-      // can see the real cause instead of guessing — once confirmed, this
-      // can go back to the shorter "please sign in again" wording.
-      statusEl.textContent = "Couldn't save — " + err.message;
-    } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Save to Sheet';
+        // Optimistically reflect the change locally so the dashboard updates
+        // immediately, without waiting for the next poll.
+        const existing = state.claims.find((c) => c.agent === agent && c.date === dateStr);
+        if (existing) { existing.claims = claimsVal; existing.loggedAt = new Date(); }
+        else state.claims.push({ year, month, day, date: dateStr, agent, claims: claimsVal, loggedAt: new Date() });
+
+        statusEl.style.color = cssVarColor('--accent');
+        statusEl.textContent = 'Saved ' + new Date().toLocaleTimeString() + (isManager ? ' for ' + agent + '.' : '.');
+        renderLogHistory(agent);
+        updateLogCurrentValueNote();
+      } catch (err) {
+        console.error('Failed to save claims', err);
+        if (err.code === 'AUTH_EXPIRED') {
+          // The token looked fresh on our end but the server still
+          // rejected it (clock skew, revoked session, etc.) — same
+          // recovery path as a client-detected expiry.
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Save to Sheet';
+          showReauthPrompt(statusEl, attemptSave);
+          return;
+        }
+        statusEl.style.color = cssVarColor('--warm');
+        statusEl.textContent = "Couldn't save — " + err.message;
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Save to Sheet';
+      }
     }
+
+    await attemptSave();
   };
 
   const historyTarget = isManager ? (agentSelect.value || AGENTS[0].agent) : state.identity.name;
@@ -2487,6 +2624,14 @@ function enterApp(identity) {
 
   if (state.pollHandle) clearInterval(state.pollHandle);
   state.pollHandle = setInterval(() => loadData(false), CONFIG.POLL_INTERVAL_MS);
+
+  // Best-effort background renewal so the token is rarely close to expiry
+  // by the time someone hits Save — failures here are fine to ignore,
+  // since ensureFreshIdToken() will just try again at save time.
+  if (state.tokenRefreshHandle) clearInterval(state.tokenRefreshHandle);
+  state.tokenRefreshHandle = setInterval(() => {
+    refreshIdTokenSilently().catch((err) => console.warn('Background token refresh skipped:', err.message));
+  }, 45 * 60 * 1000);
 }
 
 window.addEventListener('DOMContentLoaded', () => {
