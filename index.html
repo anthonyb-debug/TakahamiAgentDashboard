@@ -1563,6 +1563,19 @@ function renderMissingEntriesAlert() {
   }
 }
 
+// Renders one dashboard section in isolation. Previously renderDashboard
+// was a single unbroken sequence of sub-renders, so if any one of them
+// threw (a Chart.js hiccup, an unexpected/blank data row, a detached
+// canvas) every step after it was silently skipped — which is exactly why
+// changing the Agent filter could appear to do nothing until a full
+// reload (log out / log in) rebuilt the page from a clean state. Isolating
+// each section means a failure in one piece can no longer freeze the KPI
+// numbers, and the underlying error is now logged instead of hidden.
+function safeRender(label, fn) {
+  try { fn(); }
+  catch (err) { console.error(`Dashboard section "${label}" failed to render:`, err); }
+}
+
 function renderDashboard() {
   const filters = state.dashFilters;
   const sig = optionsSignature();
@@ -1578,51 +1591,63 @@ function renderDashboard() {
   }
 
   const { filteredClaims, filteredAttendance } = applyFilters(state.claims, state.attendance, filters);
-  renderMissingEntriesAlert();
+  safeRender('missing-entries', renderMissingEntriesAlert);
+
   // Only summarize agents that match the current filter — passing the
   // full roster here regardless of the Agent filter was diluting "team"
   // averages (e.g. dividing by 5 agents even when 4 had no data in the
   // filtered set at all).
   const summaryAgentList = filters.agent === 'all' ? state.agents : [filters.agent];
-  const summaries = computeAgentSummaries(filteredClaims, filteredAttendance, summaryAgentList);
+  let summaries = [];
+  try {
+    summaries = computeAgentSummaries(filteredClaims, filteredAttendance, summaryAgentList);
+  } catch (err) {
+    console.error('computeAgentSummaries failed:', err);
+  }
   const isManager = state.identity.role === 'manager';
 
-  if (isManager && filters.agent === 'all') {
-    renderTeamKpiCards(summaries, filters);
-    document.getElementById('goal-progress-mount').innerHTML = '';
-    document.getElementById('attendance-goal-mount').innerHTML = '';
-  } else if (isManager) {
-    // A manager has drilled into one specific agent — show that agent's
-    // own numbers (same card set an agent sees for themselves), not a
-    // team-wide average across everyone else.
-    renderKpiCards(summaries[0], filters);
-    renderGoalProgress(summaries[0]);
-    renderAttendanceGoalCard(summaries[0]);
-  } else {
-    const myAgentName = matchAgentName();
-    const me = summaries.find((s) => s.agent === myAgentName) || summaries[0];
-    renderKpiCards(me, filters);
-    renderGoalProgress(me);
-    renderAttendanceGoalCard(me);
-  }
+  // The KPI numbers get their own isolation so nothing downstream can stop
+  // them from refreshing when the Agent filter changes.
+  safeRender('kpi-cards', () => {
+    if (isManager && filters.agent === 'all') {
+      renderTeamKpiCards(summaries, filters);
+      document.getElementById('goal-progress-mount').innerHTML = '';
+      document.getElementById('attendance-goal-mount').innerHTML = '';
+    } else if (isManager) {
+      // A manager has drilled into one specific agent — show that agent's
+      // own numbers (same card set an agent sees for themselves), not a
+      // team-wide average across everyone else.
+      renderKpiCards(summaries[0], filters);
+      renderGoalProgress(summaries[0]);
+      renderAttendanceGoalCard(summaries[0]);
+    } else {
+      const myAgentName = matchAgentName();
+      const me = summaries.find((s) => s.agent === myAgentName) || summaries[0];
+      renderKpiCards(me, filters);
+      renderGoalProgress(me);
+      renderAttendanceGoalCard(me);
+    }
+  });
 
-  renderDailyClaimsTable(filteredClaims, filters.agent, 'daily-claims-mount');
-  renderLeaderboard(summaries, 'leaderboard-mount');
-  renderInsights(computeInsights(filteredClaims, filteredAttendance), 'insights-mount');
+  safeRender('daily-claims', () => renderDailyClaimsTable(filteredClaims, filters.agent, 'daily-claims-mount'));
+  safeRender('leaderboard', () => renderLeaderboard(summaries, 'leaderboard-mount'));
+  safeRender('insights', () => renderInsights(computeInsights(filteredClaims, filteredAttendance), 'insights-mount'));
 
-  renderLineChart('chart-claims-trend', claimsTrendSeries(filteredClaims), 'date', 'claims', 'primary', true);
-  renderLineChart('chart-daily-average', dailyAverageSeries(filteredClaims), 'date', 'average', 'accent', false);
-  renderBarChart('chart-weekly', weeklyProductivitySeries(filteredClaims), 'week', 'claims');
+  safeRender('trend-chart', () => renderLineChart('chart-claims-trend', claimsTrendSeries(filteredClaims), 'date', 'claims', 'primary', true));
+  safeRender('daily-avg-chart', () => renderLineChart('chart-daily-average', dailyAverageSeries(filteredClaims), 'date', 'average', 'accent', false));
+  safeRender('weekly-chart', () => renderBarChart('chart-weekly', weeklyProductivitySeries(filteredClaims), 'week', 'claims'));
 
   // Agent comparison is inherently cross-agent, so it ignores the Agent
   // filter the same way the Attendance Trend (History view) ignores Month
   // — otherwise picking one agent would leave a "comparison" chart with
   // one bar.
-  const { filteredClaims: claimsForComparison, filteredAttendance: attendanceForComparison } =
-    applyFilters(state.claims, state.attendance, { ...filters, agent: 'all' });
-  const comparisonSummaries = computeAgentSummaries(claimsForComparison, attendanceForComparison, state.agents);
-  renderAgentComparisonChart(comparisonSummaries);
-  renderClaimsDonut(comparisonSummaries, filters);
+  safeRender('agent-comparison', () => {
+    const { filteredClaims: claimsForComparison, filteredAttendance: attendanceForComparison } =
+      applyFilters(state.claims, state.attendance, { ...filters, agent: 'all' });
+    const comparisonSummaries = computeAgentSummaries(claimsForComparison, attendanceForComparison, state.agents);
+    renderAgentComparisonChart(comparisonSummaries);
+    renderClaimsDonut(comparisonSummaries, filters);
+  });
 }
 
 // Shows a day-by-day claims breakdown for a single agent — only makes
@@ -1976,10 +2001,18 @@ function renderLineChart(canvasId, data, xKey, yKey, colorVar, filled, maxY) {
     // first draw after creation isn't guaranteed to land in the same
     // paint frame as the destroy. Colors don't need to change here since
     // a theme switch forces a full recreate via destroyAllCharts() instead.
-    existing.data.labels = labels;
-    existing.data.datasets[0].data = values;
-    existing.update(CHART_ANIMATION_ENABLED ? undefined : 'none');
-    return;
+    try {
+      existing.data.labels = labels;
+      existing.data.datasets[0].data = values;
+      existing.update(CHART_ANIMATION_ENABLED ? undefined : 'none');
+      return;
+    } catch (err) {
+      // If the stored instance is stale (e.g. its canvas was replaced),
+      // recover by recreating it rather than letting the throw bubble up
+      // and abort the rest of the dashboard.
+      console.warn('Chart update failed, recreating:', canvasId, err);
+      destroyChart(canvasId);
+    }
   }
 
   const ctx = document.getElementById(canvasId);
@@ -2013,12 +2046,17 @@ function renderBarChart(canvasId, data, xKey, yKey) {
 
   const existing = state.charts[canvasId];
   if (existing) {
-    const primary = cssVarColor('--primary'), warm = cssVarColor('--warm');
-    existing.data.labels = labels;
-    existing.data.datasets[0].data = values;
-    existing.data.datasets[0].backgroundColor = values.map((_, i) => (i === maxIndex ? warm : primary));
-    existing.update(CHART_ANIMATION_ENABLED ? undefined : 'none');
-    return;
+    try {
+      const primary = cssVarColor('--primary'), warm = cssVarColor('--warm');
+      existing.data.labels = labels;
+      existing.data.datasets[0].data = values;
+      existing.data.datasets[0].backgroundColor = values.map((_, i) => (i === maxIndex ? warm : primary));
+      existing.update(CHART_ANIMATION_ENABLED ? undefined : 'none');
+      return;
+    } catch (err) {
+      console.warn('Chart update failed, recreating:', canvasId, err);
+      destroyChart(canvasId);
+    }
   }
 
   const ctx = document.getElementById(canvasId);
@@ -2052,10 +2090,15 @@ function renderAgentComparisonChart(summaries) {
 
   const existing = state.charts[canvasId];
   if (existing) {
-    existing.data.labels = labels;
-    existing.data.datasets[0].data = values;
-    existing.update(CHART_ANIMATION_ENABLED ? undefined : 'none');
-    return;
+    try {
+      existing.data.labels = labels;
+      existing.data.datasets[0].data = values;
+      existing.update(CHART_ANIMATION_ENABLED ? undefined : 'none');
+      return;
+    } catch (err) {
+      console.warn('Chart update failed, recreating:', canvasId, err);
+      destroyChart(canvasId);
+    }
   }
 
   const ctx = document.getElementById(canvasId);
@@ -2081,11 +2124,11 @@ function renderAgentComparisonChart(summaries) {
 // agents there are.
 const DONUT_COLORS = ['#2563EB', '#10B981', '#7C3AED', '#D97706', '#DB2777', '#0EA5E9', '#84CC16', '#F43F5E', '#6366F1', '#14B8A6'];
 
-// Unlike the other charts, this one's canvas lives inside #kpi-grid, which
-// gets its innerHTML fully replaced on every render — so the canvas
-// element itself is a fresh node each time, and any previous Chart.js
-// instance would be pointing at a now-detached one. Always destroy and
-// recreate here rather than trying to update in place.
+// The donut lives in its own card (a sibling of #kpi-grid, not inside it),
+// so its canvas node is stable across renders and can be updated in place
+// like the other charts. The try/catch below still recreates it if the
+// stored instance ever goes stale, so a bad chart state can't wedge the
+// dashboard.
 function renderClaimsDonut(summaries, filters) {
   const canvasId = 'chart-claims-donut';
   const sorted = [...summaries].filter((s) => s.mtdClaims > 0).sort((a, b) => b.mtdClaims - a.mtdClaims);
@@ -2111,11 +2154,16 @@ function renderClaimsDonut(summaries, filters) {
 
   const existing = state.charts[canvasId];
   if (existing) {
-    existing.data.labels = labels;
-    existing.data.datasets[0].data = values;
-    existing.data.datasets[0].backgroundColor = colors;
-    existing.update(CHART_ANIMATION_ENABLED ? undefined : 'none');
-    return;
+    try {
+      existing.data.labels = labels;
+      existing.data.datasets[0].data = values;
+      existing.data.datasets[0].backgroundColor = colors;
+      existing.update(CHART_ANIMATION_ENABLED ? undefined : 'none');
+      return;
+    } catch (err) {
+      console.warn('Chart update failed, recreating:', canvasId, err);
+      destroyChart(canvasId);
+    }
   }
 
   const ctx = document.getElementById(canvasId);
