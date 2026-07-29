@@ -1604,28 +1604,23 @@ function renderDashboard() {
   } catch (err) {
     console.error('computeAgentSummaries failed:', err);
   }
-  const isManager = state.identity.role === 'manager';
-
   // The KPI numbers get their own isolation so nothing downstream can stop
   // them from refreshing when the Agent filter changes.
   safeRender('kpi-cards', () => {
-    if (isManager && filters.agent === 'all') {
+    if (filters.agent === 'all') {
+      // "All agents" now shows team-wide totals for everyone, agents and
+      // managers alike. Agent logins used to fall back to their own single
+      // number here, which made "All agents" look identical to picking
+      // their own name.
       renderTeamKpiCards(summaries, filters);
       document.getElementById('goal-progress-mount').innerHTML = '';
       document.getElementById('attendance-goal-mount').innerHTML = '';
-    } else if (isManager) {
-      // A manager has drilled into one specific agent — show that agent's
-      // own numbers (same card set an agent sees for themselves), not a
-      // team-wide average across everyone else.
-      renderKpiCards(summaries[0], filters);
-      renderGoalProgress(summaries[0]);
-      renderAttendanceGoalCard(summaries[0]);
     } else {
-      const myAgentName = matchAgentName();
-      const me = summaries.find((s) => s.agent === myAgentName) || summaries[0];
-      renderKpiCards(me, filters);
-      renderGoalProgress(me);
-      renderAttendanceGoalCard(me);
+      // A specific agent is selected — show that agent's own cards.
+      const one = summaries.find((s) => s.agent === filters.agent) || summaries[0];
+      renderKpiCards(one, filters);
+      renderGoalProgress(one);
+      renderAttendanceGoalCard(one);
     }
   });
 
