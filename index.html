@@ -672,17 +672,23 @@ const ICONS = {
 };
 
 /* ==========================================================================
-   KPI SCORING — mirrors the standard + Christia Mapa special-case tables.
+   KPI SCORING — full 1–5 tables for standard agents and the Christia Mapa
+   special case. Ranges are on the rounded avg claims/day and are contiguous,
+   so every value maps to exactly one tier (no "below tier" gap).
    ========================================================================== */
 const STANDARD_TIERS = [
-  { level: 3, min: 45, max: 59 },
-  { level: 4, min: 60, max: 79 },
-  { level: 5, min: 80, max: null },
+  { level: 1, min: 0,  max: 29 },   // less than 30
+  { level: 2, min: 30, max: 44 },   // 30–44
+  { level: 3, min: 45, max: 45 },   // 45
+  { level: 4, min: 46, max: 60 },   // 46–60
+  { level: 5, min: 61, max: null }, // 61 and above
 ];
 const SPECIAL_TIERS = [
-  { level: 3, min: 27, max: 42 },
-  { level: 4, min: 43, max: 58 },
-  { level: 5, min: 59, max: null },
+  { level: 1, min: 0,  max: 14 },   // less than 15
+  { level: 2, min: 15, max: 26 },   // 15–26
+  { level: 3, min: 27, max: 27 },   // 27
+  { level: 4, min: 28, max: 43 },   // 28–43
+  { level: 5, min: 44, max: null }, // 44 and above
 ];
 
 // Matches regardless of name order ("Christia Mapa" or "Mapa, Christia
@@ -706,20 +712,20 @@ function computeKpiStreak(claims, agentName, maxLookback = 60) {
   const meetsThreshold = (iso) => { const v = claimsByDate.get(iso); return v !== undefined && v >= threshold; };
 
   let streak = 0;
-  const cursor = new Date();
-  const todayIso = toLocalIso(cursor);
-  const todayDow = cursor.getDay();
+  const cursor = todayCalendar();
+  const todayIso = isoFromCalendar(cursor);
+  const todayDow = cursor.getUTCDay();
   if (todayDow !== 0 && todayDow !== 6 && meetsThreshold(todayIso)) streak++;
 
-  cursor.setDate(cursor.getDate() - 1);
+  cursor.setUTCDate(cursor.getUTCDate() - 1);
   for (let i = 0; i < maxLookback; i++) {
-    const dow = cursor.getDay();
+    const dow = cursor.getUTCDay();
     if (dow !== 0 && dow !== 6) {
-      const iso = toLocalIso(cursor);
+      const iso = isoFromCalendar(cursor);
       if (!meetsThreshold(iso)) break;
       streak++;
     }
-    cursor.setDate(cursor.getDate() - 1);
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
   }
   return streak;
 }
@@ -727,13 +733,13 @@ function computeKpiStreak(claims, agentName, maxLookback = 60) {
 // Counts Mon–Fri work days from the 1st of the month through today (or
 // through the last day, if looking at a past month).
 function workdaysElapsedInMonth(year, month) {
-  const today = new Date();
-  const isCurrentMonth = year === today.getFullYear() && month === today.getMonth() + 1;
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const lastDay = isCurrentMonth ? today.getDate() : daysInMonth;
+  const now = nowInZone();
+  const isCurrentMonth = year === now.year && month === now.month;
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const lastDay = isCurrentMonth ? now.day : daysInMonth;
   let count = 0;
   for (let d = 1; d <= lastDay; d++) {
-    const dow = new Date(year, month - 1, d).getDay();
+    const dow = new Date(Date.UTC(year, month - 1, d)).getUTCDay();
     if (dow !== 0 && dow !== 6) count++;
   }
   return count;
@@ -803,7 +809,7 @@ function calculateKpi(agentName, avgClaimsPerDay) {
   const nextTier = sortedAscending.find((t) => t.min > rounded) || null;
   return {
     level: matched ? matched.level : 0,
-    tierLabel: matched ? ('KPI ' + matched.level) : 'Below KPI 3',
+    tierLabel: matched ? ('KPI ' + matched.level) : 'KPI 1',
     dailyGoal: topTier.min,
     nextTier,
     avgGapToNextTier: nextTier ? Math.max(nextTier.min - avgClaimsPerDay, 0) : 0,
@@ -846,7 +852,7 @@ function updateStatusChips(claims) {
     latestEl.textContent = fmtDisplayDate(latestDate);
   }
   if (syncedEl) {
-    syncedEl.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    syncedEl.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: APP_TIME_ZONE });
   }
 }
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -856,12 +862,37 @@ function isoWeekNumber(dateStr) {
   const week1 = new Date(date.getFullYear(), 0, 4);
   return 1 + Math.round(((date - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
 }
-function toLocalIso(dateObj) {
-  const tz = dateObj.getTimezoneOffset() * 60000;
-  return new Date(dateObj - tz).toISOString().slice(0, 10);
+// All "current date/month" logic runs against this zone rather than the
+// viewer's local clock, so everyone sees the same day/month regardless of
+// where their browser is. 'America/New_York' tracks DST automatically
+// (EST in winter, EDT in summer) — change this one constant to re-pin.
+const APP_TIME_ZONE = 'America/New_York';
+
+// The wall-clock year/month/day right now in APP_TIME_ZONE. month is 1-based.
+function nowInZone() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: APP_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date());
+  const get = (t) => Number(parts.find((p) => p.type === t).value);
+  return { year: get('year'), month: get('month'), day: get('day') };
+}
+
+// A Date whose UTC fields equal the given calendar date. Anchoring on UTC lets
+// day-of-week checks (getUTCDay) and day stepping (setUTCDate) walk the
+// calendar with no timezone/DST drift, since we never re-read the zone mid-walk.
+function calendarDate(year, month, day) {
+  return new Date(Date.UTC(year, month - 1, day));
+}
+function isoFromCalendar(dateObj) {
+  return dateObj.toISOString().slice(0, 10);
+}
+// Today in APP_TIME_ZONE, anchored as a UTC-calendar Date for safe arithmetic.
+function todayCalendar() {
+  const { year, month, day } = nowInZone();
+  return calendarDate(year, month, day);
 }
 function todayISO() {
-  return toLocalIso(new Date());
+  return isoFromCalendar(todayCalendar());
 }
 function cssVarColor(name, alpha) {
   const val = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -957,7 +988,7 @@ function parseLoggedAt(raw) {
 function fmtLoggedAt(loggedAt) {
   if (!loggedAt) return '—';
   if (loggedAt instanceof Date) {
-    return loggedAt.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    return loggedAt.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: APP_TIME_ZONE });
   }
   return loggedAt;
 }
@@ -1070,7 +1101,7 @@ function uniqueAgents(claims, attendance) {
 }
 function uniqueYears(claims) {
   const y = Array.from(new Set(claims.map((c) => c.year))).sort((a, b) => b - a);
-  return y.length ? y : [new Date().getFullYear()];
+  return y.length ? y : [nowInZone().year];
 }
 
 // Cheap fingerprint of the current agents/years lists, used to decide
@@ -1087,16 +1118,16 @@ function optionsSignature() {
 function computeMissingWorkdays(claims, agentName, maxLookback = 14) {
   const loggedDates = new Set(claims.filter((c) => c.agent === agentName && c.claims > 0).map((c) => c.date));
   const missing = [];
-  const cursor = new Date();
-  cursor.setDate(cursor.getDate() - 1);
+  const cursor = todayCalendar();
+  cursor.setUTCDate(cursor.getUTCDate() - 1);
   for (let i = 0; i < maxLookback; i++) {
-    const dow = cursor.getDay();
+    const dow = cursor.getUTCDay();
     if (dow !== 0 && dow !== 6) {
-      const iso = toLocalIso(cursor);
+      const iso = isoFromCalendar(cursor);
       if (loggedDates.has(iso)) break;
       missing.push(iso);
     }
-    cursor.setDate(cursor.getDate() - 1);
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
   }
   return missing; // most recent missing day first
 }
@@ -1840,7 +1871,7 @@ function renderKpiCards(me, filters) {
     { icon: ICONS.calendarRange, label: 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), accent: 'accent', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.gauge, label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1), accent: 'violet', trendHtml: trend ? trendHtml(trend.avgClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.calendarCheck, label: 'Attendance', value: fmtPct(me.attendancePct, 1), accent: 'warm', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
-    { icon: ICONS.award, label: 'KPI Tier', value: me.kpi.level ? `KPI ${me.kpi.level}` : 'Below KPI 3', sub: kpiNextTierSubtext(me.kpi), accent: 'rose' },
+    { icon: ICONS.award, label: 'Productivity KPI Tier', value: `KPI ${me.kpi.level}`, sub: kpiNextTierSubtext(me.kpi), accent: 'rose' },
   ];
   document.getElementById('kpi-grid').innerHTML = kpiCardsHtml(cards);
 }
@@ -2308,7 +2339,7 @@ function renderLogClaims() {
         else state.claims.push({ year, month, day, date: dateStr, agent, claims: claimsVal, loggedAt: new Date() });
 
         statusEl.style.color = cssVarColor('--accent');
-        statusEl.textContent = 'Saved ' + new Date().toLocaleTimeString() + (isManager ? ' for ' + agent + '.' : '.');
+        statusEl.textContent = 'Saved ' + new Date().toLocaleTimeString([], { timeZone: APP_TIME_ZONE }) + (isManager ? ' for ' + agent + '.' : '.');
         renderLogHistory(agent);
         updateLogCurrentValueNote();
       } catch (err) {
@@ -2415,7 +2446,7 @@ function renderProfile() {
       </div>` : ''}
     </div>`;
 
-  const currentMonthLabel = MONTH_NAMES[new Date().getMonth()];
+  const currentMonthLabel = MONTH_NAMES[nowInZone().month - 1];
   if (me) {
     const streak = computeKpiStreak(state.claims, me.agent);
     const stats = [
@@ -2602,7 +2633,7 @@ function wireMonthStepper(containerId, filters, rerender) {
   // instead of pointing the Year filter at a year with nothing in it.
   function step(dir) {
     if (filters.month === 'all') {
-      commit(new Date().getMonth() + 1);
+      commit(nowInZone().month);
       return;
     }
     let m = filters.month + dir;
@@ -2616,7 +2647,7 @@ function wireMonthStepper(containerId, filters, rerender) {
   prevBtn.onclick = () => step(-1);
   nextBtn.onclick = () => step(1);
   labelBtn.onclick = () => {
-    commit(filters.month === 'all' ? (new Date().getMonth() + 1) : 'all');
+    commit(filters.month === 'all' ? nowInZone().month : 'all');
   };
 
   // Also keep the stepper in sync if the underlying Year <select> changes
@@ -2672,8 +2703,7 @@ function enterApp(identity) {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
 
-  const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().getMonth() + 1;
+  const { year: currentYear, month: currentMonth } = nowInZone();
   state.dashFilters = { year: currentYear, month: currentMonth, agent: 'all', week: 'all' };
   state.historyFilters = { year: currentYear, month: 'all', agent: 'all', week: 'all' };
   state.profileLogFilters = { year: currentYear, month: currentMonth };
