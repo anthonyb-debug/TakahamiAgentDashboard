@@ -2673,6 +2673,14 @@ async function loadData(showErrors = true) {
     // animation replaying and no chart redraw animation replaying, since
     // the underlying DOM/canvas elements get freshly rebuilt either way.
     const silent = showErrors === false;
+    // Suppress the card entrance animation on silent background polls so the
+    // cards don't slide/fade in ("move") on every refresh. The 0s override has
+    // to stay in effect until AFTER the browser has started animating the
+    // freshly-rebuilt cards. Restoring it synchronously (as this did before)
+    // ran in the same tick — before the next style recalc — so the new cards
+    // still animated at .45s and the guard did nothing. Defer the restore to a
+    // later frame (rAF inside rAF fires on the next frame, i.e. after this
+    // frame's paint) so the animation kicks off while the value is still 0s.
     if (silent) document.documentElement.style.setProperty('--card-anim-duration', '0s');
     CHART_ANIMATION_ENABLED = !silent;
 
@@ -2680,8 +2688,14 @@ async function loadData(showErrors = true) {
     if (state.view === 'history') renderHistory();
     if (state.view === 'profile') renderProfile();
 
-    if (silent) document.documentElement.style.setProperty('--card-anim-duration', '.45s');
+    // Charts read this flag synchronously during the render above, so it's safe
+    // to restore immediately — only the CSS variable needs the deferred restore.
     CHART_ANIMATION_ENABLED = true;
+    if (silent) {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        document.documentElement.style.setProperty('--card-anim-duration', '.45s');
+      }));
+    }
   } catch (err) {
     console.error('Failed to load Google Sheets data', err);
     if (showErrors) {
