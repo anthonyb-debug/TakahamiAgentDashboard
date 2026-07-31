@@ -760,17 +760,23 @@ function workdaysElapsedInMonth(year, month) {
   return count;
 }
 
-// "Expected so far" is work days elapsed × a tier's daily target. Positive
-// deficit = behind that pace, negative = running ahead of it. Generic over
-// tierLevel so it can measure against any tier — the agent's own next
-// tier (computeClaimsDeficit below) or a fixed one like KPI 5 for the
-// "stretch" preview line.
+// "Expected so far" is the agent's counted days × a tier's daily target.
+// Positive deficit = behind that pace, negative = running ahead of it.
+// Generic over tierLevel so it can measure against any tier — the agent's
+// own next tier (computeClaimsDeficit below) or a fixed one like KPI 5 for
+// the "stretch" preview line.
 function computeDeficitForTier(claims, agentName, year, month, tierLevel) {
   const tier = getTiersForAgent(agentName).find((t) => t.level === tierLevel);
   if (!tier) return null;
-  const workdays = workdaysElapsedInMonth(year, month);
-  const expected = workdays * tier.min;
-  const actual = claims.filter((c) => c.agent === agentName && c.year === year && c.month === month).reduce((s, c) => s + c.claims, 0);
+  const agentMonth = claims.filter((c) => c.agent === agentName && c.year === year && c.month === month);
+  // Use the SAME denominator as Avg Claims / Day: distinct days the agent
+  // logged anything (real claims OR an explicit ABS), NOT every weekday in
+  // the month. This keeps the deficit and the average consistent, so that
+  // (actual + deficit) / countedDays === tier.min. Blank days (planned leave,
+  // client holidays) are excluded from both, exactly as they should be.
+  const countedDays = new Set(agentMonth.filter((c) => c.logged).map((c) => c.date)).size;
+  const expected = countedDays * tier.min;
+  const actual = agentMonth.reduce((s, c) => s + c.claims, 0);
   return { expected, actual, deficit: expected - actual, targetLevel: tierLevel };
 }
 
