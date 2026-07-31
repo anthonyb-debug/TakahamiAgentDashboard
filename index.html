@@ -1355,12 +1355,24 @@ function refreshIdTokenSilently(timeoutMs = 8000) {
   const promise = createPendingTokenRefresh(timeoutMs);
   try {
     google.accounts.id.prompt((notification) => {
-      const notDisplayed = notification.isNotDisplayed && notification.isNotDisplayed();
-      const skipped = notification.isSkippedMoment && notification.isSkippedMoment();
+      // Under FedCM (use_fedcm_for_prompt) these moment methods are
+      // deprecated and can throw, so guard every call. When we genuinely
+      // can't tell whether the prompt was shown, we do NOT hard-reject —
+      // we let the timeout in createPendingTokenRefresh settle things,
+      // because handleCredentialResponse may still call back with a token.
+      let notDisplayed = false, skipped = false, reason = 'Silent sign-in was not available.';
+      try {
+        notDisplayed = notification.isNotDisplayed && notification.isNotDisplayed();
+        skipped = notification.isSkippedMoment && notification.isSkippedMoment();
+        reason = (notDisplayed && notification.getNotDisplayedReason && notification.getNotDisplayedReason())
+          || (skipped && notification.getSkippedReason && notification.getSkippedReason())
+          || reason;
+      } catch (e) {
+        // FedCM path — moment inspection unavailable. Fall through and
+        // rely on the credential callback / timeout instead of rejecting.
+        return;
+      }
       if ((notDisplayed || skipped) && pendingTokenRefresh) {
-        const reason = (notification.getNotDisplayedReason && notification.getNotDisplayedReason())
-          || (notification.getSkippedReason && notification.getSkippedReason())
-          || 'Silent sign-in was not available.';
         pendingTokenRefresh.reject(new Error(reason));
         pendingTokenRefresh = null;
       }
@@ -1410,6 +1422,12 @@ function initGoogleSignIn() {
     callback: handleCredentialResponse,
     hd: CONFIG.ALLOWED_DOMAIN,
     auto_select: true,
+    // FedCM is Google's replacement for the third-party cookies that the
+    // old One Tap renewal depended on. Modern browsers (Chrome/Edge) now
+    // block those cookies by default, which silently breaks background
+    // token renewal and leaves users re-authenticating ~1 hour in. Turning
+    // this on lets the silent refresh below actually succeed again.
+    use_fedcm_for_prompt: true,
   });
   google.accounts.id.renderButton(document.getElementById('g_id_signin_container'), {
     theme: 'filled_black', size: 'large', shape: 'pill', text: 'continue_with', width: 320,
