@@ -519,6 +519,11 @@
             Enter your <strong>total claims for the day</strong> — this replaces any existing entry for that date, it does not add to it.
             Picking a date that already has a number lets you correct it.
           </p>
+          <p style="font-size:.78rem; color:rgb(var(--ink)); background:rgb(var(--primary) / .08); border:1px solid rgb(var(--primary) / .18); border-radius:.65rem; padding:.6rem .75rem; margin:-.5rem 0 1rem;">
+            <strong>Planned leave or a client holiday?</strong> Leave it blank — don't log anything for that day.
+            Days with no entry are left out of the Avg Claims / Day calculation, so they won't count against the average.
+            Only use <strong>Mark as absent (ABS)</strong> for an <em>unplanned</em> absence, which logs a 0 and does count toward the average.
+          </p>
           <div style="display:flex; flex-direction:column; gap:1rem;">
             <div class="field hidden" id="log-agent-field">
               <label>Logging For</label>
@@ -2421,13 +2426,12 @@ function renderLogClaims() {
 
 function renderLogHistory(agent) {
   const f = state.logHistoryFilters;
-  // Only count days that were actually worked: skip zero/blank entries and
-  // weekends, since those shouldn't count toward the day total or list
-  // shown here (weekends are treated as rest days everywhere else in the
-  // app too — see computeMissingWorkdays).
+  // Show days the agent actually logged — real claims OR an explicit absence
+  // (a logged 0, displayed as ABS). Blank/never-logged days and weekends are
+  // still skipped (weekends are rest days everywhere — see computeMissingWorkdays).
   const monthClaims = state.claims.filter((c) => {
     if (c.year !== f.year || c.month !== f.month) return false;
-    if (!c.claims) return false;
+    if (!c.logged) return false;
     const dow = new Date(c.date + 'T00:00:00').getDay();
     if (dow === 0 || dow === 6) return false;
     return true;
