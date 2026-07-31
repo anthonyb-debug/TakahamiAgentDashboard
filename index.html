@@ -531,6 +531,10 @@
             <div class="field">
               <label>Claims Processed</label>
               <input type="number" id="log-claims-input" min="0" step="1" placeholder="e.g. 62" style="width:100%;" />
+              <label for="log-absent-input" style="display:flex; align-items:center; gap:.5rem; font-size:.78rem; color:rgb(var(--muted)); margin:.55rem 0 0; cursor:pointer;">
+                <input type="checkbox" id="log-absent-input" style="width:auto; margin:0;" />
+                Mark as absent (ABS) — logs 0 for this day
+              </label>
               <p id="log-current-value-note" style="font-size:.72rem; color:rgb(var(--muted)); margin:.3rem 0 0; min-height:1em;"></p>
             </div>
             <button class="btn btn-primary lg" id="log-submit-btn">Save to Sheet</button>
@@ -1013,9 +1017,16 @@ async function fetchClaims() {
     .map((r) => {
       const isoDate = toIsoDate(r[3]);
       const dayOfMonth = /^\d{4}-\d{2}-\d{2}$/.test(isoDate) ? toNum(isoDate.slice(8, 10)) : toNum(r[2]);
+      // Distinguish a blank Claims cell (never logged) from a typed value —
+      // including a typed 0, which now means "absent (ABS)". Number('') is 0,
+      // so we can't rely on the parsed number alone; check the raw cell.
+      const rawClaims = String(r[5] ?? '').trim();
+      const logged = rawClaims !== '';
+      const claims = logged ? toNum(rawClaims) : 0;
       return {
         year: toNum(r[0]), month: toMonthNumber(r[1]), day: dayOfMonth,
-        date: isoDate, agent: String(r[4]).trim(), claims: toNum(r[5]),
+        date: isoDate, agent: String(r[4]).trim(),
+        claims, logged, absent: logged && claims === 0,
         loggedAt: parseLoggedAt(r[6]),
       };
     });
@@ -1121,7 +1132,9 @@ function optionsSignature() {
 // logged day is found, so this is specifically the *current* gap, not a
 // lifetime count. Capped at maxLookback to keep it cheap for new agents.
 function computeMissingWorkdays(claims, agentName, maxLookback = 14) {
-  const loggedDates = new Set(claims.filter((c) => c.agent === agentName && c.claims > 0).map((c) => c.date));
+  // A day counts as handled if the agent logged anything for it — real
+  // claims or an explicit absence — so absences aren't nagged as "missing".
+  const loggedDates = new Set(claims.filter((c) => c.agent === agentName && c.logged).map((c) => c.date));
   const missing = [];
   const cursor = todayCalendar();
   cursor.setUTCDate(cursor.getUTCDate() - 1);
@@ -1143,10 +1156,13 @@ function computeAgentSummaries(claims, attendance, agentNames) {
     const agentClaims = claims.filter((c) => c.agent === agent);
     const todayClaims = agentClaims.filter((c) => c.date === today).reduce((s, c) => s + c.claims, 0);
     const mtdClaims = agentClaims.reduce((s, c) => s + c.claims, 0);
-    // Only count days they actually processed something — a blank/zero
-    // cell shouldn't count as an "active" day and drag the average down.
-    const activeDays = new Set(agentClaims.filter((c) => c.claims > 0).map((c) => c.date)).size;
-    const avgClaimsPerDay = activeDays > 0 ? mtdClaims / activeDays : 0;
+    // Denominator = distinct days the agent logged anything: a real claim
+    // count (claims > 0) PLUS days explicitly logged as absent (a typed 0).
+    // Blank / never-logged days are excluded. Because absences add to the
+    // denominator but not the numerator, missing work lowers the average —
+    // this is the attendance-adjusted "claims per day" the KPI is based on.
+    const countedDays = new Set(agentClaims.filter((c) => c.logged).map((c) => c.date)).size;
+    const avgClaimsPerDay = countedDays > 0 ? mtdClaims / countedDays : 0;
     const agentAttendance = attendance.filter((a) => a.agent === agent);
     const attendancePct = agentAttendance.length
       ? agentAttendance.reduce((s, a) => s + a.attendance, 0) / agentAttendance.length : 0;
@@ -1727,7 +1743,7 @@ function renderDailyClaimsTable(claims, selectedAgent, mountId, opts = {}) {
       <tr class="${r.claims === best && best > 0 ? 'dc-best' : ''}">
         <td>${r.date}</td>
         <td>${dow}</td>
-        <td class="num mono">${fmtNum(r.claims)}</td>
+        <td class="num mono">${r.absent ? 'ABS' : fmtNum(r.claims)}</td>
         <td class="dc-logged-at">${fmtLoggedAt(r.loggedAt)}</td>
       </tr>`;
   }).join('');
@@ -1797,8 +1813,10 @@ function computeMonthOverMonthTrend(agentName, year, month) {
   const totalThis = thisMonth.reduce((s, c) => s + c.claims, 0);
   const totalPrev = prevMonth.reduce((s, c) => s + c.claims, 0);
 
-  const activeDaysThis = new Set(thisMonth.filter((c) => c.claims > 0).map((c) => c.date)).size;
-  const activeDaysPrev = new Set(prevMonth.filter((c) => c.claims > 0).map((c) => c.date)).size;
+  // Same day-count basis as the Avg Claims / Day KPI: logged days (claims > 0
+  // plus explicit absences), so the trend arrow reflects the same metric.
+  const activeDaysThis = new Set(thisMonth.filter((c) => c.logged).map((c) => c.date)).size;
+  const activeDaysPrev = new Set(prevMonth.filter((c) => c.logged).map((c) => c.date)).size;
   const avgThis = activeDaysThis ? totalThis / activeDaysThis : 0;
   const avgPrev = activeDaysPrev ? totalPrev / activeDaysPrev : 0;
 
@@ -2270,6 +2288,7 @@ function renderHistory() {
 function renderLogClaims() {
   const dateInput = document.getElementById('log-date-input');
   const claimsInput = document.getElementById('log-claims-input');
+  const absentInput = document.getElementById('log-absent-input');
   const statusEl = document.getElementById('log-status');
   const submitBtn = document.getElementById('log-submit-btn');
   const agentField = document.getElementById('log-agent-field');
@@ -2284,6 +2303,14 @@ function renderLogClaims() {
 
   if (!dateInput.value) dateInput.value = todayISO();
 
+  // When "absent" is ticked, the claims number is irrelevant (it's logged as
+  // 0), so grey it out to make the intent clear.
+  function syncAbsentUI() {
+    claimsInput.disabled = absentInput.checked;
+    if (absentInput.checked) claimsInput.value = '';
+  }
+  absentInput.onchange = syncAbsentUI;
+
   function updateLogCurrentValueNote() {
     const note = document.getElementById('log-current-value-note');
     const dateStr = dateInput.value;
@@ -2291,15 +2318,20 @@ function renderLogClaims() {
     if (!dateStr || !agent) { note.textContent = ''; return; }
 
     const existing = state.claims.find((c) => c.agent === agent && c.date === dateStr);
-    if (existing && existing.claims > 0) {
+    note.style.color = cssVarColor('--muted');
+    if (existing && existing.absent) {
+      absentInput.checked = true;
+      note.textContent = 'Currently logged as Absent (ABS). Saving will replace it.';
+    } else if (existing && existing.claims > 0) {
+      absentInput.checked = false;
       claimsInput.value = existing.claims;
       note.textContent = `Currently logged for this date: ${existing.claims}. Saving will replace it.`;
-      note.style.color = cssVarColor('--muted');
     } else {
+      absentInput.checked = false;
       claimsInput.value = '';
       note.textContent = 'Nothing logged for this date yet.';
-      note.style.color = cssVarColor('--muted');
     }
+    syncAbsentUI();
   }
   dateInput.onchange = updateLogCurrentValueNote;
 
@@ -2314,11 +2346,12 @@ function renderLogClaims() {
 
   submitBtn.onclick = async () => {
     const dateStr = dateInput.value;
-    const claimsVal = parseInt(claimsInput.value, 10);
+    const absent = absentInput.checked;
+    const claimsVal = absent ? 0 : parseInt(claimsInput.value, 10);
     const agent = isManager ? agentSelect.value : state.identity.name;
     if (!dateStr) { statusEl.textContent = 'Pick a date first.'; statusEl.style.color = cssVarColor('--warm'); return; }
     if (isManager && !agent) { statusEl.textContent = 'Choose who you\'re logging for.'; statusEl.style.color = cssVarColor('--warm'); return; }
-    if (isNaN(claimsVal) || claimsVal < 0) { statusEl.textContent = 'Enter a valid number of claims.'; statusEl.style.color = cssVarColor('--warm'); return; }
+    if (!absent && (isNaN(claimsVal) || claimsVal < 0)) { statusEl.textContent = 'Enter a valid number of claims, or tick "Mark as absent".'; statusEl.style.color = cssVarColor('--warm'); return; }
 
     const d = new Date(dateStr + 'T00:00:00');
     const year = d.getFullYear(), month = d.getMonth() + 1, day = d.getDate();
@@ -2346,13 +2379,14 @@ function renderLogClaims() {
         await writeClaimsToSheet(year, month, day, agent, claimsVal, state.identity.idToken);
 
         // Optimistically reflect the change locally so the dashboard updates
-        // immediately, without waiting for the next poll.
+        // immediately, without waiting for the next poll. A submitted value
+        // (including an absent 0) is always "logged".
         const existing = state.claims.find((c) => c.agent === agent && c.date === dateStr);
-        if (existing) { existing.claims = claimsVal; existing.loggedAt = new Date(); }
-        else state.claims.push({ year, month, day, date: dateStr, agent, claims: claimsVal, loggedAt: new Date() });
+        if (existing) { existing.claims = claimsVal; existing.logged = true; existing.absent = absent; existing.loggedAt = new Date(); }
+        else state.claims.push({ year, month, day, date: dateStr, agent, claims: claimsVal, logged: true, absent, loggedAt: new Date() });
 
         statusEl.style.color = cssVarColor('--accent');
-        statusEl.textContent = 'Saved ' + new Date().toLocaleTimeString([], { timeZone: APP_TIME_ZONE }) + (isManager ? ' for ' + agent + '.' : '.');
+        statusEl.textContent = (absent ? 'Saved as Absent ' : 'Saved ') + new Date().toLocaleTimeString([], { timeZone: APP_TIME_ZONE }) + (isManager ? ' for ' + agent + '.' : '.');
         renderLogHistory(agent);
         updateLogCurrentValueNote();
       } catch (err) {
@@ -2550,7 +2584,7 @@ function renderProfileClaimsLog(agentName) {
       <tr class="${r.claims === best && best > 0 ? 'dc-best' : ''}">
         <td>${r.date}</td>
         <td>${dow}</td>
-        <td class="num mono">${fmtNum(r.claims)}</td>
+        <td class="num mono">${r.absent ? 'ABS' : fmtNum(r.claims)}</td>
         <td class="dc-logged-at">${fmtLoggedAt(r.loggedAt)}</td>
       </tr>`;
   }).join('');
