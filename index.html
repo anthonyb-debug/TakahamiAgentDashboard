@@ -1079,7 +1079,6 @@ function applyFilters(claims, attendance, f) {
     if (f.year && c.year !== f.year) return false;
     if (f.month !== 'all' && c.month !== f.month) return false;
     if (f.agent !== 'all' && c.agent !== f.agent) return false;
-    if (f.week !== 'all' && isoWeekNumber(c.date) !== f.week) return false;
     if (f.dateFrom && c.date < f.dateFrom) return false;
     if (f.dateTo && c.date > f.dateTo) return false;
     return true;
@@ -1228,8 +1227,16 @@ function computeInsights(claims, attendance) {
 function claimsToCsv(rows) {
   const esc = (v) => (/[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v);
   const header = ['Year', 'Month', 'Day', 'Date', 'Agent', 'Claims'].join(',');
-  const lines = rows.map((r) => [r.year, r.month, r.day, r.date, esc(r.agent), r.claims].join(','));
+  const lines = rows.map((r) => [r.year, MONTH_NAMES[r.month - 1] || r.month, r.day, r.date, esc(r.agent), r.claims].join(','));
   return [header, ...lines].join('\n');
+}
+// Builds a descriptive CSV name in Month-Year-Agent order. 'all' selections
+// become readable labels so the file still self-describes its scope.
+function exportFilename({ month, year, agent }) {
+  const safe = (s) => String(s).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
+  const monthLabel = month === 'all' || month == null ? 'All-Months' : MONTH_NAMES[month - 1];
+  const agentLabel = !agent || agent === 'all' ? 'All-Agents' : agent;
+  return `Takahami-Claims-${safe(monthLabel)}-${year}-${safe(agentLabel)}.csv`;
 }
 function downloadCsv(filename, csv) {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -1551,8 +1558,6 @@ function filtersBarHtml(filters, opts) {
   const monthOptions = MONTH_NAMES.map((m, i) => `<option value="${i + 1}" ${filters.month === i + 1 ? 'selected' : ''}>${m}</option>`).join('');
   const yearOptions = state.years.map((y) => `<option value="${y}" ${filters.year === y ? 'selected' : ''}>${y}</option>`).join('');
   const agentOptions = state.agents.map((a) => `<option value="${a}" ${filters.agent === a ? 'selected' : ''}>${a}</option>`).join('');
-  const weekOptions = Array.from({ length: 53 }, (_, i) => i + 1)
-    .map((w) => `<option value="${w}" ${filters.week === w ? 'selected' : ''}>Week ${w}</option>`).join('');
 
   return `
     <div class="field"><label>Year</label>
@@ -1566,8 +1571,6 @@ function filtersBarHtml(filters, opts) {
       <select data-filter="month" style="display:none" tabindex="-1" aria-hidden="true"><option value="all" ${filters.month === 'all' ? 'selected' : ''}>All months</option>${monthOptions}</select></div>
     <div class="field"><label>Agent</label>
       <select data-filter="agent"><option value="all" ${filters.agent === 'all' ? 'selected' : ''}>All agents</option>${agentOptions}</select></div>
-    ${opts.showWeek ? `<div class="field"><label>Week</label>
-      <select data-filter="week"><option value="all" ${filters.week === 'all' ? 'selected' : ''}>All weeks</option>${weekOptions}</select></div>` : ''}
     ${opts.showDateRange ? `
     <div class="field"><label>From</label><input type="date" data-filter="dateFrom" value="${filters.dateFrom || ''}"></div>
     <div class="field"><label>To</label><input type="date" data-filter="dateTo" value="${filters.dateTo || ''}"></div>` : ''}
@@ -1629,12 +1632,12 @@ function renderDashboard() {
   const filters = state.dashFilters;
   const sig = optionsSignature();
   if (state.dashFiltersBarSig !== sig) {
-    document.getElementById('filters-bar').innerHTML = filtersBarHtml(filters, { showWeek: true, showDateRange: true, showExport: true });
+    document.getElementById('filters-bar').innerHTML = filtersBarHtml(filters, { showDateRange: true, showExport: true });
     wireFilterInputs('filters-bar', filters, renderDashboard);
     wireMonthStepper('filters-bar', filters, renderDashboard);
     document.getElementById('export-btn').onclick = () => {
       const { filteredClaims } = applyFilters(state.claims, state.attendance, filters);
-      downloadCsv('takahami-claims-export.csv', claimsToCsv(filteredClaims));
+      downloadCsv(exportFilename(filters), claimsToCsv(filteredClaims));
     };
     state.dashFiltersBarSig = sig;
   }
@@ -2233,7 +2236,7 @@ function renderHistory() {
   const filters = state.historyFilters;
   const sig = optionsSignature();
   if (state.historyFiltersBarSig !== sig) {
-    document.getElementById('history-filters-bar').innerHTML = filtersBarHtml(filters, { showWeek: false, showDateRange: false, showExport: false });
+    document.getElementById('history-filters-bar').innerHTML = filtersBarHtml(filters, { showDateRange: false, showExport: false });
     wireFilterInputs('history-filters-bar', filters, renderHistory);
     wireMonthStepper('history-filters-bar', filters, renderHistory);
     state.historyFiltersBarSig = sig;
@@ -2515,8 +2518,7 @@ function renderProfileClaimsLogControls(agentName) {
   yearSelect.onchange = () => { filters.year = Number(yearSelect.value); renderProfileClaimsLog(agentName); };
   exportBtn.onclick = () => {
     const rows = state.claims.filter((c) => c.agent === agentName && c.year === filters.year && c.month === filters.month);
-    const monthLabel = MONTH_NAMES[filters.month - 1];
-    downloadCsv(`${agentName.replace(/[^a-z0-9]+/gi, '-')}-${monthLabel}-${filters.year}-claims.csv`, claimsToCsv(rows));
+    downloadCsv(exportFilename({ month: filters.month, year: filters.year, agent: agentName }), claimsToCsv(rows));
   };
 
   renderProfileClaimsLog(agentName);
@@ -2563,11 +2565,6 @@ function renderProfileClaimsLog(agentName) {
 // actually there — looking like the month filter is broken when it's really
 // a stale, more-granular filter underneath.
 function resetGranularFilters(containerId, filters) {
-  if ('week' in filters) {
-    filters.week = 'all';
-    const weekEl = document.querySelector(`#${containerId} [data-filter="week"]`);
-    if (weekEl) weekEl.value = 'all';
-  }
   if ('dateFrom' in filters) {
     filters.dateFrom = undefined;
     const fromEl = document.querySelector(`#${containerId} [data-filter="dateFrom"]`);
@@ -2585,7 +2582,7 @@ function wireFilterInputs(containerId, filters, rerender) {
     el.addEventListener('change', () => {
       const key = el.getAttribute('data-filter');
       let value = el.value;
-      if (key === 'year' || key === 'month' || key === 'week') {
+      if (key === 'year' || key === 'month') {
         value = value === 'all' ? 'all' : Number(value);
       }
       if ((key === 'dateFrom' || key === 'dateTo') && value === '') value = undefined;
@@ -2704,8 +2701,8 @@ function enterApp(identity) {
   document.getElementById('app').style.display = 'block';
 
   const { year: currentYear, month: currentMonth } = nowInZone();
-  state.dashFilters = { year: currentYear, month: currentMonth, agent: 'all', week: 'all' };
-  state.historyFilters = { year: currentYear, month: 'all', agent: 'all', week: 'all' };
+  state.dashFilters = { year: currentYear, month: currentMonth, agent: 'all' };
+  state.historyFilters = { year: currentYear, month: 'all', agent: 'all' };
   state.profileLogFilters = { year: currentYear, month: currentMonth };
   state.logHistoryFilters = { year: currentYear, month: currentMonth };
 
