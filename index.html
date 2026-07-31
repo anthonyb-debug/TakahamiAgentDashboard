@@ -76,7 +76,13 @@
   .glass-hover { transition: transform .22s cubic-bezier(.4,0,.2,1), box-shadow .22s ease, border-color .22s ease; }
   .glass-hover:hover { transform: translateY(-2px); box-shadow: 0 1px 2px rgb(var(--ink) / .04), 0 20px 40px -10px rgb(var(--ink) / .12); border-color: rgb(var(--primary) / .3); }
 
-  .card { border-radius: 1.25rem; padding: 1.15rem; animation: fade-up var(--card-anim-duration, .45s) cubic-bezier(.16,1,.3,1) both; }
+  .card { border-radius: 1.25rem; padding: 1.15rem; animation: fade-up .45s cubic-bezier(.16,1,.3,1) both; }
+  /* Silent background polls rebuild the card DOM, which would otherwise replay
+     the entrance animation on every refresh. When this class is on the root at
+     the moment the new cards are inserted, they simply skip the animation —
+     and because it's decided at insertion time (not toggled back afterward),
+     it can't re-trigger the movement the way a mutable duration did. */
+  html.cards-no-anim .card { animation: none !important; }
 
   @keyframes fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -1504,6 +1510,9 @@ function renderNav() {
 }
 function switchView(view) {
   state.view = view;
+  // User-initiated render — let the cards animate in (a prior silent poll may
+  // have left animation suppressed).
+  document.documentElement.classList.remove('cards-no-anim');
   ['dashboard', 'log', 'history', 'profile'].forEach((v) => {
     document.getElementById('view-' + v).classList.toggle('hidden', v !== view);
   });
@@ -1529,6 +1538,7 @@ function initTheme() {
     // a real rebuild — everywhere else (polling, filters) updates charts
     // in place instead to avoid the destroy/recreate flicker.
     destroyAllCharts();
+    document.documentElement.classList.remove('cards-no-anim');
     if (state.view === 'dashboard') renderDashboard();
     if (state.view === 'history') renderHistory();
     if (state.view === 'profile') renderProfile();
@@ -2588,6 +2598,7 @@ function wireFilterInputs(containerId, filters, rerender) {
       if ((key === 'dateFrom' || key === 'dateTo') && value === '') value = undefined;
       filters[key] = value;
       if (key === 'year' || key === 'month') resetGranularFilters(containerId, filters);
+      document.documentElement.classList.remove('cards-no-anim');
       rerender();
     });
   });
@@ -2622,6 +2633,7 @@ function wireMonthStepper(containerId, filters, rerender) {
     }
     resetGranularFilters(containerId, filters);
     syncUI();
+    document.documentElement.classList.remove('cards-no-anim');
     rerender();
   }
 
@@ -2674,28 +2686,46 @@ async function loadData(showErrors = true) {
     // the underlying DOM/canvas elements get freshly rebuilt either way.
     const silent = showErrors === false;
     // Suppress the card entrance animation on silent background polls so the
-    // cards don't slide/fade in ("move") on every refresh. The 0s override has
-    // to stay in effect until AFTER the browser has started animating the
-    // freshly-rebuilt cards. Restoring it synchronously (as this did before)
-    // ran in the same tick — before the next style recalc — so the new cards
-    // still animated at .45s and the guard did nothing. Defer the restore to a
-    // later frame (rAF inside rAF fires on the next frame, i.e. after this
-    // frame's paint) so the animation kicks off while the value is still 0s.
-    if (silent) document.documentElement.style.setProperty('--card-anim-duration', '0s');
+    // cards don't slide/fade in on every refresh. The class is set BEFORE the
+    // render below, so the rebuilt cards are inserted with the animation
+    // already disabled. We deliberately don't flip it back afterward: doing so
+    // while those cards are still in the DOM re-triggers the animation (that
+    // was the flaw in the earlier duration-based guard). User-initiated renders
+    // (nav, filters, theme) clear the class themselves right before they
+    // rebuild, so they still animate.
+    document.documentElement.classList.toggle('cards-no-anim', silent);
     CHART_ANIMATION_ENABLED = !silent;
 
-    if (state.view === 'dashboard') renderDashboard();
-    if (state.view === 'history') renderHistory();
-    if (state.view === 'profile') renderProfile();
+    const renderCurrentView = () => {
+      if (state.view === 'dashboard') renderDashboard();
+      if (state.view === 'history') renderHistory();
+      if (state.view === 'profile') renderProfile();
+    };
 
-    // Charts read this flag synchronously during the render above, so it's safe
-    // to restore immediately — only the CSS variable needs the deferred restore.
-    CHART_ANIMATION_ENABLED = true;
     if (silent) {
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        document.documentElement.style.setProperty('--card-anim-duration', '.45s');
-      }));
+      // A silent poll rebuilds the mounts, which makes the browser lose scroll
+      // position — both the window (yanking the reader back to the top of the
+      // page) and the daily-claims table's own internal scroll. Capture both
+      // before the render and restore after. It's seamless because no paint
+      // happens between the rebuild and the restore in this same tick.
+      const winX = window.scrollX, winY = window.scrollY;
+      const scrollSelectors = ['#daily-claims-mount .dc-table-wrap', '#log-history-mount .dc-table-wrap'];
+      const savedInner = scrollSelectors
+        .map((sel) => { const el = document.querySelector(sel); return el ? { sel, top: el.scrollTop, left: el.scrollLeft } : null; })
+        .filter(Boolean);
+
+      renderCurrentView();
+
+      window.scrollTo(winX, winY);
+      savedInner.forEach(({ sel, top, left }) => {
+        const el = document.querySelector(sel);
+        if (el) { el.scrollTop = top; el.scrollLeft = left; }
+      });
+    } else {
+      renderCurrentView();
     }
+
+    CHART_ANIMATION_ENABLED = true;
   } catch (err) {
     console.error('Failed to load Google Sheets data', err);
     if (showErrors) {
