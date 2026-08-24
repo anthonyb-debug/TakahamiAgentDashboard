@@ -345,6 +345,49 @@
   table.dc-table tbody tr.dc-best:hover { background: rgb(var(--accent) / .11); }
   table.dc-table tfoot td { padding: .6rem .8rem; font-weight: 700; border-top: 1px solid rgb(var(--border)); }
 
+  /* Right-aligned button cluster inside the filters bar (Monthly View + Export) */
+  .filters-actions { margin-left: auto; display: flex; align-items: flex-end; gap: .5rem; }
+  #monthly-view-btn[aria-pressed="true"] {
+    background: rgb(var(--primary) / .1); border-color: rgb(var(--primary) / .4); color: rgb(var(--primary));
+  }
+  #monthly-view-btn[aria-pressed="true"] svg { color: rgb(var(--primary)); }
+
+  /* ============ MONTHLY VIEW (pivot: day x agent) ============ */
+  #monthly-grid-mount:empty { display: none; }
+  .mgrid-hint { text-align: center; padding: 2.5rem 1rem; color: rgb(var(--muted)); font-size: .9rem; }
+  .mgrid-wrap { overflow: auto; max-height: 70vh; border-radius: .9rem; border: 1px solid rgb(var(--border) / .7); }
+  table.mgrid { border-collapse: separate; border-spacing: 0; width: 100%; font-size: .78rem; }
+  table.mgrid th, table.mgrid td { padding: .45rem .7rem; white-space: nowrap; border-bottom: 1px solid rgb(var(--border) / .5); }
+  table.mgrid thead th {
+    position: sticky; top: 0; z-index: 3; background: rgb(var(--surface));
+    font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: rgb(var(--muted));
+    text-align: right; border-bottom: 1px solid rgb(var(--border));
+  }
+  table.mgrid thead th:first-child { text-align: left; }
+  /* Sticky first (Date) column */
+  table.mgrid th.mgrid-date, table.mgrid td.mgrid-date {
+    position: sticky; left: 0; z-index: 2; background: rgb(var(--surface));
+    text-align: left; font-weight: 600; border-right: 1px solid rgb(var(--border));
+  }
+  table.mgrid thead th.mgrid-date { z-index: 4; }
+  table.mgrid tbody td { text-align: right; font-variant-numeric: tabular-nums; color: rgb(var(--ink)); }
+  table.mgrid tbody td.mgrid-empty { color: rgb(var(--muted) / .35); }
+  table.mgrid tbody tr:nth-child(even) td { background: rgb(var(--ink) / .02); }
+  table.mgrid tbody tr:nth-child(even) td.mgrid-date { background: rgb(var(--canvas)); }
+  table.mgrid tbody tr:hover td { background: rgb(var(--primary) / .05); }
+  table.mgrid tbody tr:hover td.mgrid-date { background: rgb(var(--primary) / .08); }
+  /* Grand Total column + row */
+  table.mgrid .mgrid-total { font-weight: 700; background: rgb(var(--ink) / .03); }
+  table.mgrid tbody tr:nth-child(even) td.mgrid-total { background: rgb(var(--ink) / .05); }
+  table.mgrid tfoot td {
+    position: sticky; bottom: 0; z-index: 2; background: rgb(var(--surface));
+    font-weight: 800; text-align: right; border-top: 2px solid rgb(var(--border)); border-bottom: none; color: rgb(var(--ink));
+  }
+  table.mgrid tfoot td.mgrid-date { left: 0; z-index: 3; text-align: left; }
+  table.mgrid tfoot td.mgrid-grand { background: rgb(var(--primary) / .12); color: rgb(var(--primary)); }
+  /* Subtle heat shading toggled per-cell via inline alpha */
+  table.mgrid td.mgrid-cell[data-heat] { background: rgb(var(--primary) / var(--heat, 0)); }
+
   /* ============ INSIGHTS ============ */
   .insights-grid { display: grid; grid-template-columns: 1fr; gap: .9rem; }
   @media (min-width: 640px) { .insights-grid { grid-template-columns: 1fr 1fr; } }
@@ -458,6 +501,7 @@
       <!-- ===== DASHBOARD VIEW ===== -->
       <div id="view-dashboard">
         <div class="filters-bar glass card" id="filters-bar"></div>
+        <div id="monthly-grid-mount" style="margin-top:1.1rem;"></div>
         <div id="missing-entries-mount"></div>
         <div class="kpi-grid" id="kpi-grid" style="margin-top:1.1rem;"></div>
 
@@ -684,6 +728,7 @@ const ICONS = {
   activity: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
   chevronLeft: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
   chevronRight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
+  grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>',
 };
 
 /* ==========================================================================
@@ -1611,7 +1656,10 @@ function filtersBarHtml(filters, opts) {
     ${opts.showDateRange ? `
     <div class="field"><label>From</label><input type="date" data-filter="dateFrom" value="${filters.dateFrom || ''}"></div>
     <div class="field"><label>To</label><input type="date" data-filter="dateTo" value="${filters.dateTo || ''}"></div>` : ''}
-    ${opts.showExport ? `<button class="btn btn-glass glass glass-hover" id="export-btn" style="margin-left:auto;">${ICONS.download}Export CSV</button>` : ''}
+    ${(opts.showMonthlyToggle || opts.showExport) ? `<div class="filters-actions">
+      ${opts.showMonthlyToggle ? `<button class="btn btn-glass glass glass-hover" id="monthly-view-btn" data-monthly-toggle aria-pressed="${filters.showMonthlyGrid ? 'true' : 'false'}">${ICONS.grid}Monthly View</button>` : ''}
+      ${opts.showExport ? `<button class="btn btn-glass glass glass-hover" id="export-btn">${ICONS.download}Export CSV</button>` : ''}
+    </div>` : ''}
   `;
 }
 
@@ -1669,9 +1717,10 @@ function renderDashboard() {
   const filters = state.dashFilters;
   const sig = optionsSignature();
   if (state.dashFiltersBarSig !== sig) {
-    document.getElementById('filters-bar').innerHTML = filtersBarHtml(filters, { showDateRange: true, showExport: true });
+    document.getElementById('filters-bar').innerHTML = filtersBarHtml(filters, { showDateRange: true, showExport: true, showMonthlyToggle: true });
     wireFilterInputs('filters-bar', filters, renderDashboard);
     wireMonthStepper('filters-bar', filters, renderDashboard);
+    wireMonthlyToggle('filters-bar', filters);
     document.getElementById('export-btn').onclick = () => {
       const { filteredClaims } = applyFilters(state.claims, state.attendance, filters);
       downloadCsv(exportFilename(filters), claimsToCsv(filteredClaims));
@@ -1680,6 +1729,7 @@ function renderDashboard() {
   }
 
   const { filteredClaims, filteredAttendance } = applyFilters(state.claims, state.attendance, filters);
+  safeRender('monthly-grid', () => renderMonthlyGrid(filters));
   safeRender('missing-entries', renderMissingEntriesAlert);
 
   // Only summarize agents that match the current filter — passing the
@@ -1776,6 +1826,171 @@ function renderDailyClaimsTable(claims, selectedAgent, mountId, opts = {}) {
         </table>
       </div>
     </div>`;
+}
+
+/* ==========================================================================
+   MONTHLY VIEW — day x agent pivot (mirrors the Google Sheet pivot table).
+   Deliberately ignores the Agent filter and the From/To range: the whole
+   point of this view is to see the entire team side by side for one month,
+   so it keys only off Year + Month. A blank cell means "no entry logged";
+   a 0 means the day was logged as absent (ABS). That distinction matches
+   how the rest of the app treats no-entry vs. absent, and keeps averages
+   elsewhere honest.
+   ========================================================================== */
+function monthlyGridData(claims, year, month) {
+  const inMonth = claims.filter((c) => c.year === year && c.month === month);
+
+  // Rows: only days that actually have at least one entry, oldest first —
+  // same as the sheet (weekends/holidays with nothing logged don't appear).
+  const days = Array.from(new Set(inMonth.map((c) => c.date))).sort();
+
+  // Columns: full agent roster so the grid is stable month to month, even
+  // for an agent who logged nothing (they just show an empty column).
+  const agents = state.agents.slice();
+
+  // matrix[date][agent] = number | null(no entry)
+  const matrix = {};
+  days.forEach((d) => { matrix[d] = {}; agents.forEach((a) => { matrix[d][a] = null; }); });
+  inMonth.forEach((c) => {
+    if (matrix[c.date] && Object.prototype.hasOwnProperty.call(matrix[c.date], c.agent)) {
+      matrix[c.date][c.agent] = c.claims;
+    }
+  });
+
+  const rowTotals = {};
+  days.forEach((d) => { rowTotals[d] = agents.reduce((s, a) => s + (matrix[d][a] || 0), 0); });
+  const colTotals = {};
+  agents.forEach((a) => { colTotals[a] = days.reduce((s, d) => s + (matrix[d][a] || 0), 0); });
+  const grand = agents.reduce((s, a) => s + colTotals[a], 0);
+
+  // Per-agent daily max, used only for the optional heat shading so one
+  // agent's big day doesn't wash out a lower-volume agent's column.
+  const colMax = {};
+  agents.forEach((a) => { colMax[a] = days.reduce((m, d) => Math.max(m, matrix[d][a] || 0), 0); });
+
+  return { days, agents, matrix, rowTotals, colTotals, grand, colMax };
+}
+
+function renderMonthlyGrid(filters) {
+  const mount = document.getElementById('monthly-grid-mount');
+  if (!mount) return;
+  if (!filters.showMonthlyGrid) { mount.innerHTML = ''; return; }
+
+  const monthLabel = filters.month === 'all' ? 'All months' : `${MONTH_NAMES[filters.month - 1]} ${filters.year}`;
+
+  if (filters.month === 'all') {
+    mount.innerHTML = `
+      <div class="glass card">
+        <div class="dc-head"><h3>Monthly View</h3></div>
+        <div class="mgrid-hint">Pick a single month (use the Month stepper above) to see the day-by-agent grid.</div>
+      </div>`;
+    return;
+  }
+
+  const { days, agents, matrix, rowTotals, colTotals, grand, colMax } = monthlyGridData(state.claims, filters.year, filters.month);
+
+  if (!days.length) {
+    mount.innerHTML = `
+      <div class="glass card">
+        <div class="dc-head"><h3>Monthly View — ${monthLabel}</h3></div>
+        <div class="mgrid-hint">No claims logged for ${monthLabel} yet.</div>
+      </div>`;
+    return;
+  }
+
+  const heatOn = !!filters.monthlyHeat;
+
+  const headCells = agents.map((a) => `<th>${a}</th>`).join('');
+
+  const bodyRows = days.map((d) => {
+    const [, m, day] = d.split('-');
+    const dateLabel = `${Number(m)}/${Number(day)}/${filters.year}`;
+    const cells = agents.map((a) => {
+      const v = matrix[d][a];
+      if (v === null) return `<td class="mgrid-cell mgrid-empty">·</td>`;
+      let heatAttr = '';
+      if (heatOn && colMax[a] > 0 && v > 0) {
+        const alpha = (0.08 + 0.34 * (v / colMax[a])).toFixed(3);
+        heatAttr = ` data-heat style="--heat:${alpha}"`;
+      }
+      return `<td class="mgrid-cell"${heatAttr}>${fmtNum(v)}</td>`;
+    }).join('');
+    return `<tr><td class="mgrid-date">${dateLabel}</td>${cells}<td class="mgrid-total">${fmtNum(rowTotals[d])}</td></tr>`;
+  }).join('');
+
+  const footCells = agents.map((a) => `<td>${fmtNum(colTotals[a])}</td>`).join('');
+
+  mount.innerHTML = `
+    <div class="glass card">
+      <div class="dc-head">
+        <h3>Monthly View — ${monthLabel}</h3>
+        <div style="display:flex; align-items:center; gap:.75rem; flex-wrap:wrap;">
+          <label style="display:flex; align-items:center; gap:.4rem; font-size:.72rem; color:rgb(var(--muted)); cursor:pointer; text-transform:none; letter-spacing:0;">
+            <input type="checkbox" id="mgrid-heat-toggle" ${heatOn ? 'checked' : ''} style="width:auto; margin:0;"> Heat map
+          </label>
+          <button class="btn btn-glass glass glass-hover" id="mgrid-export-btn" style="height:2.1rem; padding:0 .8rem; font-size:.78rem;">${ICONS.download}Export grid</button>
+          <span>${days.length} day${days.length !== 1 ? 's' : ''} &middot; ${fmtNum(grand)} claims</span>
+        </div>
+      </div>
+      <div class="mgrid-wrap">
+        <table class="mgrid">
+          <thead><tr><th class="mgrid-date">Date</th>${headCells}<th class="mgrid-total">Grand Total</th></tr></thead>
+          <tbody>${bodyRows}</tbody>
+          <tfoot><tr><td class="mgrid-date">Grand Total</td>${footCells}<td class="mgrid-grand">${fmtNum(grand)}</td></tr></tfoot>
+        </table>
+      </div>
+    </div>`;
+
+  const heatToggle = document.getElementById('mgrid-heat-toggle');
+  if (heatToggle) heatToggle.onchange = () => { filters.monthlyHeat = heatToggle.checked; renderMonthlyGrid(filters); };
+
+  const exportBtn = document.getElementById('mgrid-export-btn');
+  if (exportBtn) exportBtn.onclick = () => {
+    const csv = monthlyGridToCsv({ days, agents, matrix, rowTotals, colTotals, grand }, filters.year);
+    const safe = (s) => String(s).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
+    downloadCsv(`Takahami-Monthly-${safe(MONTH_NAMES[filters.month - 1])}-${filters.year}.csv`, csv);
+  };
+}
+
+// CSV that mirrors the on-screen pivot (same shape as the Google Sheet
+// export): a header row of agents, one row per day, a Grand Total column,
+// and a Grand Total row. Blank cells stay blank; absent days export as 0.
+function monthlyGridToCsv({ days, agents, matrix, rowTotals, colTotals, grand }, year) {
+  const esc = (s) => {
+    const str = String(s);
+    return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  };
+  const lines = [];
+  lines.push(['Date', ...agents, 'Grand Total'].map(esc).join(','));
+  days.forEach((d) => {
+    const [, m, day] = d.split('-');
+    const cells = agents.map((a) => (matrix[d][a] === null ? '' : matrix[d][a]));
+    lines.push([`${Number(m)}/${Number(day)}/${year}`, ...cells, rowTotals[d]].map(esc).join(','));
+  });
+  lines.push(['Grand Total', ...agents.map((a) => colTotals[a]), grand].map(esc).join(','));
+  return lines.join('\n');
+}
+
+// Toggles the Monthly View card open/closed. Lives outside the normal
+// filter wiring because it flips a view flag rather than a data filter,
+// and re-renders only the grid mount so opening it doesn't reflow the
+// whole dashboard.
+function wireMonthlyToggle(containerId, filters) {
+  const btn = document.querySelector(`#${containerId} [data-monthly-toggle]`);
+  if (!btn) return;
+  btn.setAttribute('aria-pressed', filters.showMonthlyGrid ? 'true' : 'false');
+  btn.onclick = () => {
+    filters.showMonthlyGrid = !filters.showMonthlyGrid;
+    btn.setAttribute('aria-pressed', filters.showMonthlyGrid ? 'true' : 'false');
+    document.documentElement.classList.remove('cards-no-anim');
+    renderMonthlyGrid(filters);
+    if (filters.showMonthlyGrid) {
+      requestAnimationFrame(() => {
+        const mount = document.getElementById('monthly-grid-mount');
+        if (mount) mount.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+  };
 }
 
 function kpiCardsHtml(cards) {
@@ -2789,7 +3004,7 @@ function enterApp(identity) {
   document.getElementById('app').style.display = 'block';
 
   const { year: currentYear, month: currentMonth } = nowInZone();
-  state.dashFilters = { year: currentYear, month: currentMonth, agent: 'all' };
+  state.dashFilters = { year: currentYear, month: currentMonth, agent: 'all', showMonthlyGrid: false };
   state.historyFilters = { year: currentYear, month: 'all', agent: 'all' };
   state.profileLogFilters = { year: currentYear, month: currentMonth };
   state.logHistoryFilters = { year: currentYear, month: currentMonth };
