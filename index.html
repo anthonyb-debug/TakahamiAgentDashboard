@@ -902,8 +902,14 @@ function goalProgress(agentName, todayClaims) {
 function fmtNum(n, decimals = 0) {
   return Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: decimals, minimumFractionDigits: decimals });
 }
-function fmtPct(n, decimals = 0) {
-  return Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: decimals }) + '%';
+function fmtPct(n) {
+  // Attendance scores are truncated (not rounded) to 2 decimal places, e.g.
+  // 99.87% instead of a rounded 99.9%. An exact 100 is shown as a plain
+  // "100%" rather than "100.00%".
+  const v = Number(n || 0);
+  if (v >= 100) return '100%';
+  const truncated = Math.floor(v * 100 + 1e-9) / 100;
+  return truncated.toFixed(2) + '%';
 }
 function fmtDisplayDate(isoDate) {
   if (!isoDate) return '—';
@@ -2127,7 +2133,7 @@ function renderKpiCards(me, filters) {
     deficit ? { ...deficitCardFields(deficit, stretchDeficit) } : { icon: ICONS.trending, label: 'Pace Deficit', value: '—', sub: 'Select a month', accent: 'primary' },
     { icon: ICONS.calendarRange, label: 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), accent: 'accent', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.gauge, label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1), accent: 'violet', trendHtml: trend ? trendHtml(trend.avgClaimsTrend, trend.prevMonthLabel) : '' },
-    { icon: ICONS.calendarCheck, label: 'Attendance', value: fmtPct(me.attendancePct, 1), accent: 'warm', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
+    { icon: ICONS.calendarCheck, label: 'Attendance', value: fmtPct(me.attendancePct), accent: 'warm', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.award, label: 'Productivity KPI Tier', value: `KPI ${me.kpi.level}`, sub: kpiNextTierSubtext(me.kpi), accent: 'rose' },
   ];
   document.getElementById('kpi-grid').innerHTML = kpiCardsHtml(cards);
@@ -2161,7 +2167,7 @@ function renderTeamKpiCards(summaries, filters) {
       : { icon: ICONS.trending, label: 'Team Pace Deficit', value: '—', sub: 'Select a month', accent: 'primary' },
     { icon: ICONS.calendarRange, label: 'Team Month-to-Date', value: fmtNum(mtdClaims), accent: 'accent', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.gauge, label: 'Team Avg Claims / Day', value: fmtNum(avgClaimsPerDay, 1), accent: 'violet', trendHtml: trend ? trendHtml(trend.avgClaimsTrend, trend.prevMonthLabel) : '' },
-    { icon: ICONS.calendarCheck, label: 'Team Attendance', value: fmtPct(attendancePct, 1), accent: 'warm', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
+    { icon: ICONS.calendarCheck, label: 'Team Attendance', value: fmtPct(attendancePct), accent: 'warm', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
   ];
   mount.innerHTML = kpiCardsHtml(cards);
 }
@@ -2219,7 +2225,7 @@ function renderAttendanceGoalCard(me) {
         <div>
           <p class="goal-title display">${target}% Target</p>
           <p class="goal-detail">
-            <span class="mono" style="font-weight:700;color:rgb(var(--ink));">${fmtPct(current, 1)}</span> this month
+            <span class="mono" style="font-weight:700;color:rgb(var(--ink));">${fmtPct(current)}</span> this month
             ${met
               ? ` &middot; <span class="mono" style="font-weight:700;color:rgb(var(--accent));">Target met</span>`
               : ` &middot; <span class="mono" style="font-weight:700;color:rgb(var(--warm));">${gapPts.toFixed(1)} pts</span> to go`}
@@ -2239,7 +2245,7 @@ function renderAttendanceGoalCard(me) {
         <div class="ring-center">
           <span class="ring-pct mono">${progressPct}%</span>
           <span class="ring-label">of target</span>
-          <span class="ring-sub mono">${fmtPct(current, 1)}/${target}%</span>
+          <span class="ring-sub mono">${fmtPct(current)}/${target}%</span>
         </div>
       </div>
     </div>`;
@@ -2271,7 +2277,7 @@ function renderInsights(insights, mountId) {
     { icon: ICONS.gauge, label: 'Avg Daily Productivity', value: fmtNum(insights.avgDailyProductivity, 1) },
     { icon: ICONS.lineChart, label: 'Best Performing Week', value: insights.bestPerformingWeek ? `${insights.bestPerformingWeek.weekLabel} (${insights.bestPerformingWeek.totalClaims})` : '—' },
     { icon: ICONS.trending, label: 'Monthly Growth', value: insights.monthlyGrowthPct !== null ? (insights.monthlyGrowthPct > 0 ? '+' : '') + insights.monthlyGrowthPct.toFixed(1) + '%' : '—' },
-    { icon: ICONS.calendarCheck, label: 'Attendance Rate', value: fmtPct(insights.attendanceRate, 1) },
+    { icon: ICONS.calendarCheck, label: 'Attendance Rate', value: fmtPct(insights.attendanceRate) },
     { icon: ICONS.activity, label: 'Consistency Score', value: insights.consistencyScore + ' / 100' },
   ];
   document.getElementById(mountId).innerHTML = `
@@ -2724,7 +2730,7 @@ function renderProfile() {
     const stats = [
       { label: `Claims (${currentMonthLabel})`, value: fmtNum(me.mtdClaims) },
       { label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1) },
-      { label: 'Attendance', value: fmtPct(me.attendancePct, 1) },
+      { label: 'Attendance', value: fmtPct(me.attendancePct) },
       { label: 'Current KPI', value: me.kpi.level || '—' },
       { label: 'To Next Tier', value: me.kpi.nextTier ? `+${Math.ceil(me.kpi.avgGapToNextTier)} avg/day` : 'Top tier' },
       { label: 'KPI 4+ Streak', value: streak > 0 ? `${streak} day${streak !== 1 ? 's' : ''} 🔥` : '—' },
