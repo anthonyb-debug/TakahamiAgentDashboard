@@ -2029,12 +2029,6 @@ function wireMonthlyToggle(containerId, filters) {
     btn.setAttribute('aria-pressed', filters.showMonthlyGrid ? 'true' : 'false');
     document.documentElement.classList.remove('cards-no-anim');
     renderMonthlyGrid(filters);
-    if (filters.showMonthlyGrid) {
-      requestAnimationFrame(() => {
-        const mount = document.getElementById('monthly-grid-mount');
-        if (mount) mount.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-    }
   };
 }
 
@@ -2143,12 +2137,6 @@ function wireClientToggle(containerId, filters) {
     btn.setAttribute('aria-pressed', filters.showClientReport ? 'true' : 'false');
     document.documentElement.classList.remove('cards-no-anim');
     renderClientReport(filters);
-    if (filters.showClientReport) {
-      requestAnimationFrame(() => {
-        const mount = document.getElementById('client-report-mount');
-        if (mount) mount.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-    }
   };
 }
 
