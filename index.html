@@ -347,10 +347,16 @@
 
   /* Right-aligned button cluster inside the filters bar (Monthly View + Export) */
   .filters-actions { margin-left: auto; display: flex; align-items: flex-end; gap: .5rem; }
-  #monthly-view-btn[aria-pressed="true"] {
+  #monthly-view-btn[aria-pressed="true"],
+  #client-report-btn[aria-pressed="true"] {
     background: rgb(var(--primary) / .1); border-color: rgb(var(--primary) / .4); color: rgb(var(--primary));
   }
-  #monthly-view-btn[aria-pressed="true"] svg { color: rgb(var(--primary)); }
+  #monthly-view-btn[aria-pressed="true"] svg,
+  #client-report-btn[aria-pressed="true"] svg { color: rgb(var(--primary)); }
+  /* Client Reports (facility rollup) */
+  #client-report-mount:empty { display: none; }
+  table.dc-table tfoot td.num { text-align: right; }
+  table.dc-table td.cr-total { font-weight: 700; }
 
   /* ============ MONTHLY VIEW (pivot: day x agent) ============ */
   #monthly-grid-mount:empty { display: none; }
@@ -502,6 +508,7 @@
       <div id="view-dashboard">
         <div class="filters-bar glass card" id="filters-bar"></div>
         <div id="monthly-grid-mount" style="margin-top:1.1rem;"></div>
+        <div id="client-report-mount" style="margin-top:1.1rem;"></div>
         <div id="missing-entries-mount"></div>
         <div class="kpi-grid" id="kpi-grid" style="margin-top:1.1rem;"></div>
 
@@ -652,6 +659,9 @@ const CONFIG = {
   // Exact tab names in the spreadsheet.
   CLAIMS_SHEET_NAME: 'Prod',
   ATTENDANCE_SHEET_NAME: 'Att',
+  // Client Reports tab: per-agent facility rollup
+  // (A=Year, C=Month, D=Agent, I=Legacy Facility, J=Outside Facility, K=Total Claims).
+  CONSOLIDATED_SHEET_NAME: 'Consolidated',
 
   // How often to re-poll Google Sheets for changes (ms).
   POLL_INTERVAL_MS: 15000,
@@ -732,6 +742,7 @@ const ICONS = {
   chevronLeft: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
   chevronRight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
   grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>',
+  clients: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9h.01M9 12h.01M9 15h.01M9 18h.01"/></svg>',
 };
 
 /* ==========================================================================
@@ -1108,6 +1119,27 @@ async function fetchAttendance() {
     }));
 }
 
+// Client Reports data from the "Consolidated" tab. Columns (data starts on
+// row 2, so the header row is skipped): A=Year, C=Month, D=Agent,
+// I=Legacy Facility, J=Outside Facility, K=Total Claims. Columns B, E–H are
+// ignored here. Trailing empty cells can make Papa return short rows, so
+// each field is read defensively and blanks resolve to 0.
+async function fetchConsolidated() {
+  const res = await fetch(sheetCsvUrl(CONFIG.CONSOLIDATED_SHEET_NAME), { cache: 'no-store' });
+  if (!res.ok) throw new Error('Failed to load Consolidated sheet (' + res.status + ')');
+  const rows = parseCsv(await res.text());
+  return rows.slice(1)
+    .filter((r) => r[3] && String(r[3]).trim())   // must have an Agent (col D)
+    .map((r) => ({
+      year: toNum(r[0]),            // A
+      month: toMonthNumber(r[2]),   // C
+      agent: String(r[3]).trim(),   // D
+      legacy: toNum(r[8]),          // I — Legacy Facility
+      outside: toNum(r[9]),         // J — Outside Facility
+      total: toNum(r[10]),          // K — Total Claims
+    }));
+}
+
 /* ==========================================================================
    WRITE-BACK — pushes a claims count to the Prod tab via a Google Apps
    Script Web App (see README.md, "Enable logging claims", for setup).
@@ -1344,6 +1376,7 @@ const state = {
   identity: null,      // { name, email, picture }
   claims: [],
   attendance: [],
+  consolidated: [],   // Client Reports rows from the Consolidated sheet
   // Tracks the last agents/years list each set of filter controls was
   // built from, so they only get rebuilt when those options actually
   // change — not on every routine data refresh. Rebuilding native
@@ -1665,8 +1698,9 @@ function filtersBarHtml(filters, opts) {
     ${opts.showDateRange ? `
     <div class="field"><label>From</label><input type="date" data-filter="dateFrom" value="${filters.dateFrom || ''}"></div>
     <div class="field"><label>To</label><input type="date" data-filter="dateTo" value="${filters.dateTo || ''}"></div>` : ''}
-    ${(opts.showMonthlyToggle || opts.showExport) ? `<div class="filters-actions">
+    ${(opts.showMonthlyToggle || opts.showClientReport || opts.showExport) ? `<div class="filters-actions">
       ${opts.showMonthlyToggle ? `<button class="btn btn-glass glass glass-hover" id="monthly-view-btn" data-monthly-toggle aria-pressed="${filters.showMonthlyGrid ? 'true' : 'false'}">${ICONS.grid}Monthly View</button>` : ''}
+      ${opts.showClientReport ? `<button class="btn btn-glass glass glass-hover" id="client-report-btn" data-client-toggle aria-pressed="${filters.showClientReport ? 'true' : 'false'}">${ICONS.clients}Client Reports</button>` : ''}
       ${opts.showExport ? `<button class="btn btn-glass glass glass-hover" id="export-btn">${ICONS.download}Export CSV</button>` : ''}
     </div>` : ''}
   `;
@@ -1726,10 +1760,11 @@ function renderDashboard() {
   const filters = state.dashFilters;
   const sig = optionsSignature();
   if (state.dashFiltersBarSig !== sig) {
-    document.getElementById('filters-bar').innerHTML = filtersBarHtml(filters, { showDateRange: true, showExport: true, showMonthlyToggle: true });
+    document.getElementById('filters-bar').innerHTML = filtersBarHtml(filters, { showDateRange: true, showExport: true, showMonthlyToggle: true, showClientReport: true });
     wireFilterInputs('filters-bar', filters, renderDashboard);
     wireMonthStepper('filters-bar', filters, renderDashboard);
     wireMonthlyToggle('filters-bar', filters);
+    wireClientToggle('filters-bar', filters);
     document.getElementById('export-btn').onclick = () => {
       const { filteredClaims } = applyFilters(state.claims, state.attendance, filters);
       downloadCsv(exportFilename(filters), claimsToCsv(filteredClaims));
@@ -1739,6 +1774,7 @@ function renderDashboard() {
 
   const { filteredClaims, filteredAttendance } = applyFilters(state.claims, state.attendance, filters);
   safeRender('monthly-grid', () => renderMonthlyGrid(filters));
+  safeRender('client-report', () => renderClientReport(filters));
   safeRender('missing-entries', renderMissingEntriesAlert);
 
   // Only summarize agents that match the current filter — passing the
@@ -1996,6 +2032,120 @@ function wireMonthlyToggle(containerId, filters) {
     if (filters.showMonthlyGrid) {
       requestAnimationFrame(() => {
         const mount = document.getElementById('monthly-grid-mount');
+        if (mount) mount.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+  };
+}
+
+/* ==========================================================================
+   CLIENT REPORTS — per-agent facility rollup from the Consolidated tab.
+   Aggregates the rows matching the dashboard's Year / Month / Agent filters
+   (summing Legacy Facility, Outside Facility and Total Claims per agent),
+   mirroring how Monthly View reacts to the same filters.
+   ========================================================================== */
+function clientReportData(rows, filters) {
+  const byAgent = new Map();
+  (rows || []).forEach((r) => {
+    if (filters.year && r.year !== filters.year) return;
+    if (filters.month !== 'all' && r.month !== filters.month) return;
+    if (filters.agent !== 'all' && r.agent !== filters.agent) return;
+    const cur = byAgent.get(r.agent) || { agent: r.agent, legacy: 0, outside: 0, total: 0 };
+    cur.legacy += r.legacy;
+    cur.outside += r.outside;
+    cur.total += r.total;
+    byAgent.set(r.agent, cur);
+  });
+  const list = Array.from(byAgent.values())
+    .sort((a, b) => b.total - a.total || a.agent.localeCompare(b.agent));
+  const totals = list.reduce((acc, x) => {
+    acc.legacy += x.legacy; acc.outside += x.outside; acc.total += x.total; return acc;
+  }, { legacy: 0, outside: 0, total: 0 });
+  return { list, totals };
+}
+
+function renderClientReport(filters) {
+  const mount = document.getElementById('client-report-mount');
+  if (!mount) return;
+  if (!filters.showClientReport) { mount.innerHTML = ''; return; }
+
+  const monthLabel = filters.month === 'all'
+    ? `All months ${filters.year}`
+    : `${MONTH_NAMES[filters.month - 1]} ${filters.year}`;
+
+  const { list, totals } = clientReportData(state.consolidated, filters);
+
+  if (!list.length) {
+    mount.innerHTML = `
+      <div class="glass card">
+        <div class="dc-head"><h3>Client Reports — ${monthLabel}</h3></div>
+        <div class="mgrid-hint">No client report data for ${monthLabel} yet. (Reads the "Consolidated" sheet.)</div>
+      </div>`;
+    return;
+  }
+
+  const bodyRows = list.map((x) => `
+    <tr>
+      <td>${x.agent}</td>
+      <td class="num">${fmtNum(x.legacy)}</td>
+      <td class="num">${fmtNum(x.outside)}</td>
+      <td class="num cr-total">${fmtNum(x.total)}</td>
+    </tr>`).join('');
+
+  mount.innerHTML = `
+    <div class="glass card">
+      <div class="dc-head">
+        <h3>Client Reports — ${monthLabel}</h3>
+        <div style="display:flex; align-items:center; gap:.75rem; flex-wrap:wrap;">
+          <button class="btn btn-glass glass glass-hover" id="cr-export-btn" style="height:2.1rem; padding:0 .8rem; font-size:.78rem;">${ICONS.download}Export report</button>
+          <span>${list.length} agent${list.length !== 1 ? 's' : ''} &middot; ${fmtNum(totals.total)} total claims</span>
+        </div>
+      </div>
+      <div class="dc-table-wrap-full">
+        <table class="dc-table">
+          <thead><tr><th>Agent</th><th class="num">Legacy Facility</th><th class="num">Outside Facility</th><th class="num">Total Claims</th></tr></thead>
+          <tbody>${bodyRows}</tbody>
+          <tfoot><tr><td>Grand Total</td><td class="num">${fmtNum(totals.legacy)}</td><td class="num">${fmtNum(totals.outside)}</td><td class="num">${fmtNum(totals.total)}</td></tr></tfoot>
+        </table>
+      </div>
+    </div>`;
+
+  const exportBtn = document.getElementById('cr-export-btn');
+  if (exportBtn) exportBtn.onclick = () => {
+    const safe = (s) => String(s).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
+    const scope = filters.month === 'all'
+      ? `All-Months-${filters.year}`
+      : `${safe(MONTH_NAMES[filters.month - 1])}-${filters.year}`;
+    downloadCsv(`Takahami-Client-Report-${scope}.csv`, clientReportToCsv(list, totals));
+  };
+}
+
+function clientReportToCsv(list, totals) {
+  const esc = (s) => {
+    const str = String(s);
+    return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  };
+  const lines = [];
+  lines.push(['Agent', 'Legacy Facility', 'Outside Facility', 'Total Claims'].map(esc).join(','));
+  list.forEach((x) => lines.push([x.agent, x.legacy, x.outside, x.total].map(esc).join(',')));
+  lines.push(['Grand Total', totals.legacy, totals.outside, totals.total].map(esc).join(','));
+  return lines.join('\n');
+}
+
+// Toggles the Client Reports card open/closed — same pattern as the Monthly
+// View toggle: flips a view flag and re-renders only its own mount.
+function wireClientToggle(containerId, filters) {
+  const btn = document.querySelector(`#${containerId} [data-client-toggle]`);
+  if (!btn) return;
+  btn.setAttribute('aria-pressed', filters.showClientReport ? 'true' : 'false');
+  btn.onclick = () => {
+    filters.showClientReport = !filters.showClientReport;
+    btn.setAttribute('aria-pressed', filters.showClientReport ? 'true' : 'false');
+    document.documentElement.classList.remove('cards-no-anim');
+    renderClientReport(filters);
+    if (filters.showClientReport) {
+      requestAnimationFrame(() => {
+        const mount = document.getElementById('client-report-mount');
         if (mount) mount.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     }
@@ -2939,9 +3089,15 @@ function wireMonthStepper(containerId, filters, rerender) {
    ========================================================================== */
 async function loadData(showErrors = true) {
   try {
-    const [claims, attendance] = await Promise.all([fetchClaims(), fetchAttendance()]);
+    const [claims, attendance, consolidated] = await Promise.all([
+      fetchClaims(),
+      fetchAttendance(),
+      // A missing/blank Consolidated tab must not take down the dashboard.
+      fetchConsolidated().catch((e) => { console.warn('Consolidated (Client Reports) sheet not loaded:', e); return []; }),
+    ]);
     state.claims = claims;
     state.attendance = attendance;
+    state.consolidated = consolidated;
     state.agents = uniqueAgents(claims, attendance);
     state.years = uniqueYears(claims);
 
@@ -3013,7 +3169,7 @@ function enterApp(identity) {
   document.getElementById('app').style.display = 'block';
 
   const { year: currentYear, month: currentMonth } = nowInZone();
-  state.dashFilters = { year: currentYear, month: currentMonth, agent: 'all', showMonthlyGrid: false };
+  state.dashFilters = { year: currentYear, month: currentMonth, agent: 'all', showMonthlyGrid: false, showClientReport: false };
   state.historyFilters = { year: currentYear, month: 'all', agent: 'all' };
   state.profileLogFilters = { year: currentYear, month: currentMonth };
   state.logHistoryFilters = { year: currentYear, month: currentMonth };
