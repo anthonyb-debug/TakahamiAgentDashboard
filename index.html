@@ -132,6 +132,11 @@
   }
   .status-chip-label { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: rgba(255,255,255,.55); }
   .status-chip-value { font-size: .78rem; font-weight: 700; color: #fff; }
+  /* Amber + a soft pulse when the sheet hasn't been readable for a while, so
+     stale numbers can't quietly pass for live ones. */
+  .status-chip.is-stale { background: rgba(245, 158, 11, .22); border-color: rgba(245, 158, 11, .5); }
+  .status-chip.is-stale .status-chip-value { color: #FCD34D; }
+  .status-chip.is-stale .status-chip-label { color: rgba(252, 211, 77, .75); }
   .topnav .icon-btn { background: rgba(255,255,255,.1); color: #fff; }
   .topnav .icon-btn:hover { background: rgba(255,255,255,.18); }
   .topnav .user-chip { background: rgba(255,255,255,.1); }
@@ -294,7 +299,8 @@
   .donut-legend-value { font-weight: 700; flex-shrink: 0; }
   .chart-wrap { height: 230px; position: relative; }
   #chart-comparison-wrap { height: 220px; }
-  @media (min-width: 640px) { #chart-comparison-wrap { height: 260px; } }
+  #chart-facility-split-wrap { height: 220px; }
+  @media (min-width: 640px) { #chart-comparison-wrap { height: 260px; } #chart-facility-split-wrap { height: 260px; } }
 
   /* ============ LEADERBOARD ============ */
   .lb-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .65rem; }
@@ -552,6 +558,11 @@
               </div>
             </div>
             <div class="glass card">
+              <h3 class="chart-title" id="facility-split-title">Legacy vs Outside Facility</h3>
+              <div class="chart-wrap" id="chart-facility-split-wrap"><canvas id="chart-facility-split"></canvas></div>
+              <p id="facility-split-note" style="font-size:.72rem; color:rgb(var(--muted)); margin:.6rem 0 0;"></p>
+            </div>
+            <div class="glass card">
               <h3 class="chart-title">Agent Comparison — Avg Claims / Day</h3>
               <div class="chart-wrap" id="chart-comparison-wrap"><canvas id="chart-comparison"></canvas></div>
             </div>
@@ -583,6 +594,7 @@
             <div class="field">
               <label>Date</label>
               <input type="date" id="log-date-input" style="width:100%;" />
+              <p id="log-date-zone-note" style="font-size:.72rem; color:rgb(var(--muted)); margin:.3rem 0 0;"></p>
             </div>
             <div class="field">
               <label>Claims Processed</label>
@@ -663,8 +675,23 @@ const CONFIG = {
   // (A=Year, C=Month, D=Agent, I=Legacy Facility, J=Outside Facility, K=Total Claims).
   CONSOLIDATED_SHEET_NAME: 'Consolidated',
 
-  // How often to re-poll Google Sheets for changes (ms).
-  POLL_INTERVAL_MS: 15000,
+  // OPTIONAL tab that replaces the hardcoded AGENTS/MANAGERS lists below, so
+  // adding or removing someone is a sheet edit instead of a code change.
+  // Columns: A=Email, B=Name, C=Role (agent|manager), D=Active (blank/TRUE =
+  // active, FALSE/no/0 = ignored). If the tab is missing or has no usable
+  // rows, the built-in lists are used instead — nothing breaks.
+  ROSTER_SHEET_NAME: 'Roster',
+
+  // OPTIONAL tab that overrides the KPI tier thresholds and the attendance
+  // target per agent. Columns: A=Agent (or * / Default for everyone not named
+  // explicitly), B=KPI2 min, C=KPI3 min, D=KPI4 min, E=KPI5 min,
+  // F=Attendance target %. Missing tab or unusable rows = built-in tiers.
+  TARGETS_SHEET_NAME: 'Targets',
+
+  // How often to re-poll Google Sheets for changes (ms). Polling pauses while
+  // the tab is in the background and a poll that returns byte-identical data
+  // skips the re-render entirely, so this is far cheaper than it looks.
+  POLL_INTERVAL_MS: 60000,
 
   // The URL of the Google Apps Script Web App that lets this page write
   // claims counts back into the Prod tab. See README.md — "Enable logging
@@ -695,8 +722,16 @@ const AGENTS = [
   { email: 'jeffrey@allianceglobalsolutions.com',    agent: 'Regaspi, Jeffrey' },
   { email: 'c.bartolome@allianceglobalsolutions.com', agent: 'Bartolome, Christian Byron' },
 ];
+// The roster tab, once loaded, wins over the hardcoded lists; until then (or
+// if that tab doesn't exist) these fall back to the constants in this file.
+function rosterAgents() {
+  return (state.roster && state.roster.agents.length) ? state.roster.agents : AGENTS;
+}
+function rosterManagers() {
+  return (state.roster && state.roster.agents.length) ? state.roster.managers : MANAGERS;
+}
 function agentForEmail(email) {
-  const match = AGENTS.find((a) => a.email.toLowerCase() === (email || '').toLowerCase());
+  const match = rosterAgents().find((a) => a.email.toLowerCase() === (email || '').toLowerCase());
   return match ? match.agent : null;
 }
 
@@ -712,7 +747,7 @@ const MANAGERS = [
   { email: 'd.reyes@allianceglobalsolutions.com',    name: 'D. Reyes' },
 ];
 function managerForEmail(email) {
-  const match = MANAGERS.find((m) => m.email.toLowerCase() === (email || '').toLowerCase());
+  const match = rosterManagers().find((m) => m.email.toLowerCase() === (email || '').toLowerCase());
   return match ? match.name : null;
 }
 
@@ -771,8 +806,33 @@ function isSpecialAgent(name) {
   const normalized = (name || '').toLowerCase();
   return normalized.includes('christia') && normalized.includes('mapa');
 }
+// Tier thresholds come from the Targets tab when it defines a row for this
+// agent (or a default row), so a policy change is a sheet edit. Everything
+// falls back to the tables above, which is also what runs before the first
+// data load completes.
 function getTiersForAgent(name) {
+  const override = targetsForAgent(name);
+  if (override && override.tiers) return override.tiers;
   return isSpecialAgent(name) ? SPECIAL_TIERS : STANDARD_TIERS;
+}
+function targetsForAgent(name) {
+  const t = state.targets;
+  if (!t) return null;
+  const key = (name || '').trim().toLowerCase();
+  const own = t.byAgent.get(key);
+  if (!own) return t.fallback || null;
+  // An agent row that only sets an attendance target shouldn't lose the
+  // default row's tiers (or vice versa) — fill the gaps from the default.
+  if (!t.fallback) return own;
+  return {
+    tiers: own.tiers || t.fallback.tiers,
+    attendanceTarget: Number.isFinite(own.attendanceTarget) ? own.attendanceTarget : t.fallback.attendanceTarget,
+  };
+}
+function attendanceTargetFor(name) {
+  const override = targetsForAgent(name);
+  if (override && Number.isFinite(override.attendanceTarget)) return override.attendanceTarget;
+  return CONFIG.ATTENDANCE_TARGET_PCT;
 }
 
 // Consecutive work days (weekends never break it) where the agent's daily
@@ -804,8 +864,87 @@ function computeKpiStreak(claims, agentName, maxLookback = 60) {
   return streak;
 }
 
+/* ==========================================================================
+   US FEDERAL HOLIDAYS — the eleven days observed by federal employees, used
+   so a closed day never gets flagged as a missing entry or counted as an
+   expected work day. Computed rather than listed, so it never needs a yearly
+   update. The observed-date rules are the federal ones: a holiday landing on
+   a Saturday is observed the Friday before, one landing on a Sunday is
+   observed the Monday after — which is why Jan 1 can pull Dec 31 of the
+   previous year into the holiday set.
+   ========================================================================== */
+// The nth given weekday of a month, e.g. nthWeekdayOf(2026, 1, 1, 3) = the
+// third Monday of January 2026. dow: 0=Sunday … 6=Saturday.
+function nthWeekdayOf(year, month, dow, n) {
+  const first = new Date(Date.UTC(year, month - 1, 1));
+  const shift = (dow - first.getUTCDay() + 7) % 7;
+  return new Date(Date.UTC(year, month - 1, 1 + shift + (n - 1) * 7));
+}
+function lastWeekdayOf(year, month, dow) {
+  const last = new Date(Date.UTC(year, month, 0));
+  const shift = (last.getUTCDay() - dow + 7) % 7;
+  return new Date(Date.UTC(year, month - 1, last.getUTCDate() - shift));
+}
+// Saturday → observed the preceding Friday; Sunday → the following Monday.
+function observedFederalDate(dateObj) {
+  const dow = dateObj.getUTCDay();
+  const shifted = new Date(dateObj.getTime());
+  if (dow === 6) shifted.setUTCDate(shifted.getUTCDate() - 1);
+  if (dow === 0) shifted.setUTCDate(shifted.getUTCDate() + 1);
+  return shifted;
+}
+const FEDERAL_HOLIDAY_NAMES = {
+  newYears: "New Year's Day",
+  mlk: 'Birthday of Martin Luther King, Jr.',
+  washington: "Washington's Birthday",
+  memorial: 'Memorial Day',
+  juneteenth: 'Juneteenth National Independence Day',
+  independence: 'Independence Day',
+  labor: 'Labor Day',
+  columbus: 'Columbus Day',
+  veterans: 'Veterans Day',
+  thanksgiving: 'Thanksgiving Day',
+  christmas: 'Christmas Day',
+};
+// Map of observed ISO date → holiday name, for the given calendar year.
+// Includes any date that *lands* in this year even if the holiday itself
+// belongs to the next one (Jan 1 on a Saturday is observed Dec 31).
+const federalHolidayCache = new Map();
+function federalHolidaysForYear(year) {
+  if (federalHolidayCache.has(year)) return federalHolidayCache.get(year);
+  const map = new Map();
+  const add = (dateObj, name) => {
+    const observed = observedFederalDate(dateObj);
+    if (observed.getUTCFullYear() === year) map.set(isoFromCalendar(observed), name);
+  };
+  // This year's fixed-date and floating holidays.
+  add(new Date(Date.UTC(year, 0, 1)), FEDERAL_HOLIDAY_NAMES.newYears);
+  add(nthWeekdayOf(year, 1, 1, 3), FEDERAL_HOLIDAY_NAMES.mlk);
+  add(nthWeekdayOf(year, 2, 1, 3), FEDERAL_HOLIDAY_NAMES.washington);
+  add(lastWeekdayOf(year, 5, 1), FEDERAL_HOLIDAY_NAMES.memorial);
+  add(new Date(Date.UTC(year, 5, 19)), FEDERAL_HOLIDAY_NAMES.juneteenth);
+  add(new Date(Date.UTC(year, 6, 4)), FEDERAL_HOLIDAY_NAMES.independence);
+  add(nthWeekdayOf(year, 9, 1, 1), FEDERAL_HOLIDAY_NAMES.labor);
+  add(nthWeekdayOf(year, 10, 1, 2), FEDERAL_HOLIDAY_NAMES.columbus);
+  add(new Date(Date.UTC(year, 10, 11)), FEDERAL_HOLIDAY_NAMES.veterans);
+  add(nthWeekdayOf(year, 11, 4, 4), FEDERAL_HOLIDAY_NAMES.thanksgiving);
+  add(new Date(Date.UTC(year, 11, 25)), FEDERAL_HOLIDAY_NAMES.christmas);
+  // Next New Year's Day, in case it's observed on Dec 31 of this year.
+  add(new Date(Date.UTC(year + 1, 0, 1)), FEDERAL_HOLIDAY_NAMES.newYears);
+  federalHolidayCache.set(year, map);
+  return map;
+}
+function federalHolidayName(isoDate) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate || '')) return null;
+  return federalHolidaysForYear(Number(isoDate.slice(0, 4))).get(isoDate) || null;
+}
+function isFederalHoliday(isoDate) {
+  return federalHolidayName(isoDate) !== null;
+}
+
 // Counts Mon–Fri work days from the 1st of the month through today (or
-// through the last day, if looking at a past month).
+// through the last day, if looking at a past month). US federal holidays are
+// excluded — a closed day isn't a day anyone was expected to produce on.
 function workdaysElapsedInMonth(year, month) {
   const now = nowInZone();
   const isCurrentMonth = year === now.year && month === now.month;
@@ -813,8 +952,11 @@ function workdaysElapsedInMonth(year, month) {
   const lastDay = isCurrentMonth ? now.day : daysInMonth;
   let count = 0;
   for (let d = 1; d <= lastDay; d++) {
-    const dow = new Date(Date.UTC(year, month - 1, d)).getUTCDay();
-    if (dow !== 0 && dow !== 6) count++;
+    const cursor = new Date(Date.UTC(year, month - 1, d));
+    const dow = cursor.getUTCDay();
+    if (dow === 0 || dow === 6) continue;
+    if (isFederalHoliday(isoFromCalendar(cursor))) continue;
+    count++;
   }
   return count;
 }
@@ -930,15 +1072,43 @@ function fmtDisplayDate(isoDate) {
   const [y, m, d] = isoDate.split('-').map(Number);
   return `${m}/${d}/${y}`;
 }
+// Every value that comes from the spreadsheet (agent names above all) passes
+// through here before it's dropped into a template literal. The sheet is
+// trusted, so this isn't about attackers — it's that a stray "<" or "&" in a
+// name would otherwise silently mangle the table it lands in.
+function escHtml(v) {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 function updateStatusChips(claims) {
   const latestEl = document.getElementById('stat-latest-update');
   const syncedEl = document.getElementById('stat-last-synced');
   if (latestEl) {
-    const latestDate = claims.reduce((max, c) => (c.date > max ? c.date : max), '');
+    const latestDate = (claims || []).reduce((max, c) => (c.date > max ? c.date : max), '');
     latestEl.textContent = fmtDisplayDate(latestDate);
   }
   if (syncedEl) {
-    syncedEl.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: APP_TIME_ZONE });
+    const chip = syncedEl.closest('.status-chip');
+    // This chip used to only ever be written on success, so after a failed
+    // poll it just sat there quietly ageing — the dashboard looked live while
+    // showing stale numbers. Two consecutive failures now say so outright.
+    const stale = state.failedPolls >= 2;
+    if (state.lastSyncAt) {
+      const when = state.lastSyncAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: APP_TIME_ZONE });
+      syncedEl.textContent = stale ? `Stale · ${when}` : when;
+    } else {
+      syncedEl.textContent = stale ? 'Not synced' : '—';
+    }
+    if (chip) {
+      chip.classList.toggle('is-stale', stale);
+      chip.title = stale
+        ? `Couldn't reach the sheet on the last ${state.failedPolls} attempts — these numbers may be out of date.`
+        : 'Last successful read from Google Sheets.';
+    }
   }
 }
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -1007,7 +1177,7 @@ function initialsOf(name) {
   return name.trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
 }
 function avatarHtml(name, photo) {
-  return photo ? `<img src="${photo}" alt="${name || ''}">` : initialsOf(name);
+  return photo ? `<img src="${escHtml(photo)}" alt="${escHtml(name || '')}">` : initialsOf(name);
 }
 
 /* ==========================================================================
@@ -1017,6 +1187,32 @@ function avatarHtml(name, photo) {
    ========================================================================== */
 function sheetCsvUrl(sheetName) {
   return `https://docs.google.com/spreadsheets/d/${CONFIG.SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+}
+
+// One place where every sheet read happens, so cache-busting and raw-text
+// capture are consistent. The timestamp matters for the save verification
+// below: `cache: 'no-store'` alone doesn't always defeat Google's edge cache,
+// and a stale read there would report a good save as unconfirmed.
+async function fetchSheetText(sheetName, label) {
+  const url = sheetCsvUrl(sheetName) + '&_cb=' + Date.now();
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Failed to load ${label || sheetName} sheet (${res.status})`);
+  return res.text();
+}
+
+// The raw CSV of the last successful read of each tab. loadData fingerprints
+// these so a poll that changed nothing can skip the re-render completely.
+const lastRawCsv = { claims: null, attendance: null, consolidated: null };
+
+// Small non-cryptographic string hash (FNV-1a). Only ever compared against
+// itself, so speed matters and collision resistance doesn't.
+function cheapHash(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h.toString(16);
 }
 
 function parseCsv(text) {
@@ -1080,9 +1276,9 @@ function fmtLoggedAt(loggedAt) {
 }
 
 async function fetchClaims() {
-  const res = await fetch(sheetCsvUrl(CONFIG.CLAIMS_SHEET_NAME), { cache: 'no-store' });
-  if (!res.ok) throw new Error('Failed to load Claims sheet (' + res.status + ')');
-  const rows = parseCsv(await res.text());
+  const text = await fetchSheetText(CONFIG.CLAIMS_SHEET_NAME, 'Claims');
+  lastRawCsv.claims = text;
+  const rows = parseCsv(text);
   // Row 0 is the header (Year, Month, Day, Date, Agent, Claims, Last
   // Updated, Updated By) — skip it. Note: column C ("Day") in the real
   // sheet is a day-of-week name ("Thursday"), not a day-of-month number,
@@ -1109,9 +1305,9 @@ async function fetchClaims() {
 }
 
 async function fetchAttendance() {
-  const res = await fetch(sheetCsvUrl(CONFIG.ATTENDANCE_SHEET_NAME), { cache: 'no-store' });
-  if (!res.ok) throw new Error('Failed to load Attendance sheet (' + res.status + ')');
-  const rows = parseCsv(await res.text());
+  const text = await fetchSheetText(CONFIG.ATTENDANCE_SHEET_NAME, 'Attendance');
+  lastRawCsv.attendance = text;
+  const rows = parseCsv(text);
   return rows.slice(1)
     .filter((r) => r.length >= 4 && r[2])
     .map((r) => ({
@@ -1125,9 +1321,9 @@ async function fetchAttendance() {
 // ignored here. Trailing empty cells can make Papa return short rows, so
 // each field is read defensively and blanks resolve to 0.
 async function fetchConsolidated() {
-  const res = await fetch(sheetCsvUrl(CONFIG.CONSOLIDATED_SHEET_NAME), { cache: 'no-store' });
-  if (!res.ok) throw new Error('Failed to load Consolidated sheet (' + res.status + ')');
-  const rows = parseCsv(await res.text());
+  const text = await fetchSheetText(CONFIG.CONSOLIDATED_SHEET_NAME, 'Consolidated');
+  lastRawCsv.consolidated = text;
+  const rows = parseCsv(text);
   return rows.slice(1)
     .filter((r) => r[3] && String(r[3]).trim())   // must have an Agent (col D)
     .map((r) => ({
@@ -1138,6 +1334,71 @@ async function fetchConsolidated() {
       outside: toNum(r[9]),         // J — Outside Facility
       total: toNum(r[10]),          // K — Total Claims
     }));
+}
+
+// A cell like "FALSE", "no", "0" or "inactive" switches a roster row off.
+// Anything else — including blank — counts as active, so a half-filled tab
+// still behaves sensibly.
+function isInactiveFlag(v) {
+  const s = String(v ?? '').trim().toLowerCase();
+  return s === 'false' || s === 'no' || s === 'n' || s === '0' || s === 'inactive';
+}
+
+// Roster tab: A=Email, B=Name, C=Role, D=Active. Returns null when the tab is
+// absent or holds nothing usable, which is the signal to keep using the
+// hardcoded AGENTS/MANAGERS lists.
+async function fetchRoster() {
+  const text = await fetchSheetText(CONFIG.ROSTER_SHEET_NAME, 'Roster');
+  const rows = parseCsv(text);
+  const agents = [], managers = [];
+  rows.slice(1).forEach((r) => {
+    const email = String(r[0] ?? '').trim();
+    const name = String(r[1] ?? '').trim();
+    const role = String(r[2] ?? '').trim().toLowerCase();
+    if (!email || !name || !email.includes('@')) return;
+    if (isInactiveFlag(r[3])) return;
+    if (role.startsWith('manager')) managers.push({ email, name });
+    else agents.push({ email, agent: name });
+  });
+  // Managers alone can't stand in for the roster: agent rows are what ties a
+  // login to a row in Prod, so an agent-less tab is treated as unusable.
+  return agents.length ? { agents, managers } : null;
+}
+
+// Targets tab: A=Agent (or * / default / all), B–E = the minimum rounded
+// avg-claims/day for KPI 2,3,4,5, F = attendance target %. A row is only used
+// if those four thresholds are present and strictly ascending — a typo that
+// would produce overlapping or inverted tiers is skipped rather than applied.
+function tiersFromThresholds(t2, t3, t4, t5) {
+  const mins = [t2, t3, t4, t5];
+  if (!mins.every((n) => Number.isFinite(n) && n >= 0)) return null;
+  for (let i = 1; i < mins.length; i++) if (mins[i] <= mins[i - 1]) return null;
+  return [
+    { level: 1, min: 0,      max: mins[0] - 1 },
+    { level: 2, min: mins[0], max: mins[1] - 1 },
+    { level: 3, min: mins[1], max: mins[2] - 1 },
+    { level: 4, min: mins[2], max: mins[3] - 1 },
+    { level: 5, min: mins[3], max: null },
+  ];
+}
+async function fetchTargets() {
+  const text = await fetchSheetText(CONFIG.TARGETS_SHEET_NAME, 'Targets');
+  const rows = parseCsv(text);
+  const byAgent = new Map();
+  let fallback = null;
+  rows.slice(1).forEach((r) => {
+    const rawAgent = String(r[0] ?? '').trim();
+    if (!rawAgent) return;
+    const tiers = tiersFromThresholds(Number(r[1]), Number(r[2]), Number(r[3]), Number(r[4]));
+    const attRaw = String(r[5] ?? '').trim();
+    const attendanceTarget = attRaw === '' ? null : toPercent(attRaw);
+    if (!tiers && attendanceTarget === null) return;
+    const entry = { tiers, attendanceTarget };
+    const key = rawAgent.toLowerCase();
+    if (key === '*' || key === 'default' || key === 'all' || key === 'all agents') fallback = entry;
+    else byAgent.set(key, entry);
+  });
+  return (byAgent.size || fallback) ? { byAgent, fallback } : null;
 }
 
 /* ==========================================================================
@@ -1183,6 +1444,41 @@ async function writeClaimsToSheet(year, month, day, agent, claims, idToken) {
     new Image().src = url;
     return { ok: true, unconfirmed: true };
   }
+}
+
+// Reads the Prod tab back and checks the row for this agent/date actually
+// holds what we just sent. This exists because the write path can report
+// success without one: when CORS blocks the fetch, writeClaimsToSheet falls
+// back to firing the request through an <img> tag, which can't report a
+// result at all and so always resolves "ok". Without this, a write that never
+// landed looked identical to one that did — and the optimistic local update
+// hid the difference until the next poll.
+//
+// Google's CSV export lags a write by a second or two, hence the retries.
+// Returns 'confirmed', 'mismatch' (row exists with a different value) or
+// 'unconfirmed' (couldn't read it back in time — not proof of failure).
+async function verifyClaimsWrite(agent, dateStr, expectedClaims, attempts = 3, delayMs = 1600) {
+  for (let i = 0; i < attempts; i++) {
+    await new Promise((r) => setTimeout(r, delayMs));
+    try {
+      const claims = await fetchClaims();
+      const row = claims.find((c) => c.agent === agent && c.date === dateStr);
+      if (row && row.logged && row.claims === expectedClaims) {
+        // Adopt the verified read wholesale — it's fresher than local state.
+        state.claims = claims;
+        return 'confirmed';
+      }
+      if (i === attempts - 1) {
+        // Last look: if the sheet clearly disagrees, trust the sheet rather
+        // than leaving the optimistic value sitting in the UI as if it stuck.
+        if (row && row.logged) { state.claims = claims; return 'mismatch'; }
+        return 'unconfirmed';
+      }
+    } catch (err) {
+      console.warn('Save verification read failed:', err);
+    }
+  }
+  return 'unconfirmed';
 }
 
 /* ==========================================================================
@@ -1240,7 +1536,10 @@ function computeMissingWorkdays(claims, agentName, maxLookback = 14) {
     if (dow !== 0 && dow !== 6) {
       const iso = isoFromCalendar(cursor);
       if (loggedDates.has(iso)) break;
-      missing.push(iso);
+      // A US federal holiday is a closed day: it neither counts as missing
+      // nor breaks the walk backwards, so a gap that spans Thanksgiving is
+      // still read as one continuous gap rather than stopping there.
+      if (!isFederalHoliday(iso)) missing.push(iso);
     }
     cursor.setUTCDate(cursor.getUTCDate() - 1);
   }
@@ -1394,6 +1693,16 @@ const state = {
   charts: {},           // Chart.js instances keyed by canvas id
   pollHandle: null,
   tokenRefreshHandle: null,
+  // Optional sheet-driven config. null = that tab is absent or unusable, and
+  // the hardcoded constants apply.
+  roster: null,
+  targets: null,
+  // Fingerprint of the last CSV payload, so an unchanged poll skips rendering.
+  lastPayloadSig: null,
+  // Sync health for the topbar chip: when the last successful read was, and
+  // how many polls have failed since. Two strikes turns the chip amber.
+  lastSyncAt: null,
+  failedPolls: 0,
 };
 
 /* ==========================================================================
@@ -1417,7 +1726,11 @@ function decodeJwt(token) {
 // is in flight, so both paths can settle the same promise.
 let pendingTokenRefresh = null;
 
-function handleCredentialResponse(response) {
+async function handleCredentialResponse(response) {
+  // If the Roster tab is still in flight, wait for it — otherwise a sign-in
+  // that lands first would be checked against the built-in list only, and
+  // someone who exists solely in the sheet would be told they aren't set up.
+  if (rosterReady) { try { await rosterReady; } catch (e) { /* falls back to constants */ } }
   const payload = decodeJwt(response.credential);
   const email = payload.email || '';
   const domain = email.split('@')[1]?.toLowerCase();
@@ -1696,7 +2009,7 @@ function matchAgentName() {
 function filtersBarHtml(filters, opts) {
   const monthOptions = MONTH_NAMES.map((m, i) => `<option value="${i + 1}" ${filters.month === i + 1 ? 'selected' : ''}>${m}</option>`).join('');
   const yearOptions = state.years.map((y) => `<option value="${y}" ${filters.year === y ? 'selected' : ''}>${y}</option>`).join('');
-  const agentOptions = state.agents.map((a) => `<option value="${a}" ${filters.agent === a ? 'selected' : ''}>${a}</option>`).join('');
+  const agentOptions = state.agents.map((a) => `<option value="${escHtml(a)}" ${filters.agent === a ? 'selected' : ''}>${escHtml(a)}</option>`).join('');
 
   return `
     <div class="field"><label>Year</label>
@@ -1736,7 +2049,7 @@ function renderMissingEntriesAlert() {
 
     if (!gaps.length) { mount.innerHTML = ''; return; }
 
-    const summary = gaps.map((g) => `${g.agent} (${g.missing.length} day${g.missing.length !== 1 ? 's' : ''})`).join(', ');
+    const summary = gaps.map((g) => `${escHtml(g.agent)} (${g.missing.length} day${g.missing.length !== 1 ? 's' : ''})`).join(', ');
     mount.innerHTML = `
       <div class="notice-banner" style="margin-top:1.5rem;">
         <div class="notice-icon">${ICONS.alert}</div>
@@ -1843,6 +2156,7 @@ function renderDashboard() {
   safeRender('trend-chart', () => renderLineChart('chart-claims-trend', claimsTrendSeries(filteredClaims), 'date', 'claims', 'primary', true));
   safeRender('daily-avg-chart', () => renderLineChart('chart-daily-average', dailyAverageSeries(filteredClaims), 'date', 'average', 'accent', false));
   safeRender('weekly-chart', () => renderBarChart('chart-weekly', weeklyProductivitySeries(filteredClaims), 'week', 'claims'));
+  safeRender('facility-split', () => renderFacilitySplitChart(filters));
 
   // Agent comparison is inherently cross-agent, so it ignores the Agent
   // filter the same way the Attendance Trend (History view) ignores Month
@@ -1888,7 +2202,7 @@ function renderDailyClaimsTable(claims, selectedAgent, mountId, opts = {}) {
   mount.innerHTML = `
     <div class="glass card">
       <div class="dc-head">
-        <h3>Daily Claims — ${selectedAgent}</h3>
+        <h3>Daily Claims — ${escHtml(selectedAgent)}</h3>
         ${opts.controlsHtml || ''}
         <span>${rows.length} day${rows.length !== 1 ? 's' : ''} &middot; ${fmtNum(total)} total</span>
       </div>
@@ -1973,7 +2287,7 @@ function renderMonthlyGrid(filters) {
 
   const heatOn = !!filters.monthlyHeat;
 
-  const headCells = agents.map((a) => `<th>${a}</th>`).join('');
+  const headCells = agents.map((a) => `<th>${escHtml(a)}</th>`).join('');
 
   const bodyRows = days.map((d) => {
     const [, m, day] = d.split('-');
@@ -2108,7 +2422,7 @@ function renderClientReport(filters) {
 
   const bodyRows = list.map((x) => `
     <tr>
-      <td>${x.agent}</td>
+      <td>${escHtml(x.agent)}</td>
       <td class="num">${fmtNum(x.legacy)}</td>
       <td class="num">${fmtNum(x.outside)}</td>
       <td class="num cr-total">${fmtNum(x.total)}</td>
@@ -2379,7 +2693,7 @@ function renderAttendanceGoalCard(me) {
   const mount = document.getElementById('attendance-goal-mount');
   if (!me) { mount.innerHTML = ''; return; }
 
-  const target = CONFIG.ATTENDANCE_TARGET_PCT;
+  const target = attendanceTargetFor(me.agent);
   const current = me.attendancePct;
   const progressPct = Math.min(Math.round((current / target) * 100), 100);
   const gapPts = Math.max(target - current, 0);
@@ -2430,7 +2744,7 @@ function renderLeaderboard(summaries, mountId) {
       <div class="lb-row ${isMe ? 'me' : ''}">
         <div class="rank-badge ${rankClass}">${s.rank}</div>
         <div class="lb-avatar">${avatarHtml(s.agent, photo)}</div>
-        <div class="lb-name"><p>${s.agent} ${isMe ? '<span style="color:rgb(var(--primary));">(you)</span>' : ''}</p><span>Avg ${fmtNum(s.avgClaimsPerDay, 1)} / day</span></div>
+        <div class="lb-name"><p>${escHtml(s.agent)} ${isMe ? '<span style="color:rgb(var(--primary));">(you)</span>' : ''}</p><span>Avg ${fmtNum(s.avgClaimsPerDay, 1)} / day</span></div>
         <div class="lb-stats"><p class="val mono">${fmtNum(s.mtdClaims)}</p><p class="tier">${s.kpi.tierLabel}</p></div>
       </div>`;
   }).join('');
@@ -2595,6 +2909,81 @@ function renderAgentComparisonChart(summaries) {
   });
 }
 
+// The Consolidated tab already carries the Legacy / Outside facility split
+// per agent, but until now it was only ever shown as a table inside Client
+// Reports. Same data, same filters, drawn as grouped bars so the mix is
+// readable at a glance instead of by subtracting columns in your head.
+function renderFacilitySplitChart(filters) {
+  const canvasId = 'chart-facility-split';
+  const titleEl = document.getElementById('facility-split-title');
+  const noteEl = document.getElementById('facility-split-note');
+  const { list } = clientReportData(state.consolidated, filters);
+
+  const periodLabel = filters.month === 'all'
+    ? `All months ${filters.year}`
+    : `${MONTH_NAMES[filters.month - 1]} ${filters.year}`;
+  if (titleEl) titleEl.textContent = `Legacy vs Outside Facility — ${periodLabel}`;
+
+  // No Consolidated rows for this period is a normal state (the tab is
+  // optional), so say so plainly rather than drawing an empty axis.
+  if (!list.length) {
+    destroyChart(canvasId);
+    if (noteEl) noteEl.textContent = `No facility data for ${periodLabel}. (Reads the "Consolidated" sheet.)`;
+    return;
+  }
+
+  const labels = list.map((x) => x.agent);
+  const legacy = list.map((x) => x.legacy);
+  const outside = list.map((x) => x.outside);
+  const totalLegacy = legacy.reduce((s, v) => s + v, 0);
+  const totalOutside = outside.reduce((s, v) => s + v, 0);
+  const grand = totalLegacy + totalOutside;
+  if (noteEl) {
+    noteEl.textContent = grand
+      ? `Legacy ${fmtNum(totalLegacy)} (${Math.round((totalLegacy / grand) * 100)}%) · Outside ${fmtNum(totalOutside)} (${Math.round((totalOutside / grand) * 100)}%)`
+      : '';
+  }
+
+  const existing = state.charts[canvasId];
+  if (existing) {
+    try {
+      existing.data.labels = labels;
+      existing.data.datasets[0].data = legacy;
+      existing.data.datasets[1].data = outside;
+      existing.update(CHART_ANIMATION_ENABLED ? undefined : 'none');
+      return;
+    } catch (err) {
+      console.warn('Chart update failed, recreating:', canvasId, err);
+      destroyChart(canvasId);
+    }
+  }
+
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  state.charts[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Legacy Facility', data: legacy, backgroundColor: cssVarColor('--primary'), borderRadius: 5, barPercentage: .8 },
+        { label: 'Outside Facility', data: outside, backgroundColor: cssVarColor('--accent'), borderRadius: 5, barPercentage: .8 },
+      ],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false, animation: CHART_ANIMATION_ENABLED ? undefined : false,
+      plugins: {
+        legend: { display: true, position: 'bottom', labels: { color: cssVarColor('--muted'), boxWidth: 10, boxHeight: 10, font: { size: 11 } } },
+        tooltip: { backgroundColor: cssVarColor('--surface'), titleColor: cssVarColor('--ink'), bodyColor: cssVarColor('--ink'), borderColor: cssVarColor('--border'), borderWidth: 1 },
+      },
+      scales: {
+        x: { grid: { color: cssVarColor('--border') }, ticks: { color: cssVarColor('--muted'), font: { size: 10 } } },
+        y: { grid: { display: false }, ticks: { color: cssVarColor('--muted'), font: { size: 11 } } },
+      },
+    },
+  });
+}
+
 // A fixed, varied palette (not tied to the theme's 3-4 semantic colors)
 // so each agent gets a visually distinct slice regardless of how many
 // agents there are.
@@ -2624,7 +3013,7 @@ function renderClaimsDonut(summaries, filters) {
   legendMount.innerHTML = sorted.map((s, i) => `
     <div class="donut-legend-row">
       <span class="donut-legend-dot" style="background:${colors[i]};"></span>
-      <span class="donut-legend-name">${s.agent}</span>
+      <span class="donut-legend-name">${escHtml(s.agent)}</span>
       <span class="donut-legend-value mono">${fmtNum(s.mtdClaims)}</span>
     </div>`).join('') || '<p class="empty-state" style="padding:0;">No claims for the selected filters.</p>';
 
@@ -2697,12 +3086,42 @@ function renderLogClaims() {
 
   const isManager = state.identity.role === 'manager';
   agentField.classList.toggle('hidden', !isManager);
-  if (isManager && !agentSelect.dataset.populated) {
-    agentSelect.innerHTML = AGENTS.map((a) => `<option value="${a.agent}">${a.agent}</option>`).join('');
-    agentSelect.dataset.populated = 'true';
+  // Rebuilt whenever the roster changes rather than once ever, so an agent
+  // added to the Roster tab shows up here without a page reload. The current
+  // selection is preserved across the rebuild.
+  const rosterSig = rosterAgents().map((a) => a.agent).join('|');
+  if (isManager && agentSelect.dataset.rosterSig !== rosterSig) {
+    const previous = agentSelect.value;
+    agentSelect.innerHTML = rosterAgents()
+      .map((a) => `<option value="${escHtml(a.agent)}">${escHtml(a.agent)}</option>`).join('');
+    if (previous && rosterAgents().some((a) => a.agent === previous)) agentSelect.value = previous;
+    agentSelect.dataset.rosterSig = rosterSig;
   }
 
   if (!dateInput.value) dateInput.value = todayISO();
+
+  // Every "today" in this app is the business day in APP_TIME_ZONE, not the
+  // viewer's local day. For anyone logging in from a different zone those can
+  // be different dates, so the field says which one it's defaulting to — and
+  // says so loudly when the two disagree.
+  const zoneNote = document.getElementById('log-date-zone-note');
+  if (zoneNote) {
+    const businessToday = todayISO();
+    const localToday = (() => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    })();
+    const zoneLabel = new Intl.DateTimeFormat('en-US', { timeZone: APP_TIME_ZONE, timeZoneName: 'short' })
+      .formatToParts(new Date()).find((p) => p.type === 'timeZoneName');
+    const zoneAbbr = zoneLabel ? zoneLabel.value : 'ET';
+    if (businessToday === localToday) {
+      zoneNote.style.color = cssVarColor('--muted');
+      zoneNote.textContent = `Business day: ${fmtDisplayDate(businessToday)} (${zoneAbbr}).`;
+    } else {
+      zoneNote.style.color = cssVarColor('--warm');
+      zoneNote.textContent = `Heads up: it's ${fmtDisplayDate(localToday)} where you are, but the business day is ${fmtDisplayDate(businessToday)} (${zoneAbbr}). Dates here follow the business day.`;
+    }
+  }
 
   // When "absent" is ticked, the claims number is irrelevant (it's logged as
   // 0), so grey it out to make the intent clear.
@@ -2754,8 +3173,10 @@ function renderLogClaims() {
     if (isManager && !agent) { statusEl.textContent = 'Choose who you\'re logging for.'; statusEl.style.color = cssVarColor('--warm'); return; }
     if (!absent && (isNaN(claimsVal) || claimsVal < 0)) { statusEl.textContent = 'Enter a valid number of claims, or tick "Mark as absent".'; statusEl.style.color = cssVarColor('--warm'); return; }
 
-    const d = new Date(dateStr + 'T00:00:00');
-    const year = d.getFullYear(), month = d.getMonth() + 1, day = d.getDate();
+    // Read the Y/M/D straight out of the ISO string the date input gives us.
+    // Round-tripping through a Date parsed at local midnight worked, but only
+    // by accident — it depended on the browser's zone never shifting the day.
+    const [year, month, day] = dateStr.split('-').map(Number);
 
     async function attemptSave() {
       submitBtn.disabled = true;
@@ -2786,10 +3207,30 @@ function renderLogClaims() {
         if (existing) { existing.claims = claimsVal; existing.logged = true; existing.absent = absent; existing.loggedAt = new Date(); }
         else state.claims.push({ year, month, day, date: dateStr, agent, claims: claimsVal, logged: true, absent, loggedAt: new Date() });
 
-        statusEl.style.color = cssVarColor('--accent');
-        statusEl.textContent = (absent ? 'Saved as Absent ' : 'Saved ') + new Date().toLocaleTimeString([], { timeZone: APP_TIME_ZONE }) + (isManager ? ' for ' + agent + '.' : '.');
+        const savedAt = new Date().toLocaleTimeString([], { timeZone: APP_TIME_ZONE });
+        const forWhom = isManager ? ' for ' + agent : '';
+        statusEl.style.color = cssVarColor('--muted');
+        statusEl.textContent = 'Saved — checking the sheet…';
         renderLogHistory(agent);
         updateLogCurrentValueNote();
+
+        // Don't claim success until the sheet actually shows the value.
+        const verdict = await verifyClaimsWrite(agent, dateStr, claimsVal);
+        if (verdict === 'confirmed') {
+          statusEl.style.color = cssVarColor('--accent');
+          statusEl.textContent = (absent ? 'Saved as Absent ' : 'Saved ') + savedAt + forWhom + ' — confirmed in the sheet.';
+        } else if (verdict === 'mismatch') {
+          statusEl.style.color = cssVarColor('--warm');
+          statusEl.textContent = `The sheet still shows a different value for ${fmtDisplayDate(dateStr)}${forWhom}. Try saving again, or check the sheet directly.`;
+        } else {
+          statusEl.style.color = cssVarColor('--warm');
+          statusEl.textContent = `Sent at ${savedAt}${forWhom}, but couldn't confirm it in the sheet yet. Check the sheet before assuming it saved.`;
+        }
+        // Re-render against whatever the verification read returned, so the
+        // dashboard reflects the sheet rather than the optimistic guess.
+        renderLogHistory(agent);
+        updateLogCurrentValueNote();
+        if (state.view === 'dashboard') renderDashboard();
       } catch (err) {
         console.error('Failed to save claims', err);
         if (err.code === 'AUTH_EXPIRED') {
@@ -2812,7 +3253,7 @@ function renderLogClaims() {
     await attemptSave();
   };
 
-  const historyTarget = isManager ? (agentSelect.value || AGENTS[0].agent) : state.identity.name;
+  const historyTarget = isManager ? (agentSelect.value || (rosterAgents()[0] || {}).agent) : state.identity.name;
   renderLogHistory(historyTarget);
   if (isManager) {
     agentSelect.onchange = () => { renderLogHistory(agentSelect.value); updateLogCurrentValueNote(); };
@@ -3117,8 +3558,26 @@ async function loadData(showErrors = true) {
     state.agents = uniqueAgents(claims, attendance);
     state.years = uniqueYears(claims);
 
+    state.lastSyncAt = new Date();
+    state.failedPolls = 0;
     updateStatusChips(claims);
     document.getElementById('global-error').classList.add('hidden');
+
+    // Most polls find nothing new. Fingerprinting the raw CSV lets those exit
+    // here instead of tearing down and rebuilding every card and chart —
+    // which is what made a background refresh visible at all.
+    const payloadSig = cheapHash(
+      (lastRawCsv.claims || '') + '\u0000' + (lastRawCsv.attendance || '') + '\u0000' + (lastRawCsv.consolidated || '')
+    );
+    const unchanged = payloadSig === state.lastPayloadSig;
+    state.lastPayloadSig = payloadSig;
+    if (unchanged && showErrors === false) return;
+
+    // The data moved, so someone has been editing the workbook — a good
+    // moment to pick up Roster / Targets edits too. Deliberately not done on
+    // every poll: idle polls shouldn't cost two extra requests, and these
+    // tabs change a few times a year at most.
+    loadSheetConfig();
 
     // A silent background poll (showErrors === false) should update the
     // dashboard without visibly flickering — that means no card entrance
@@ -3168,6 +3627,10 @@ async function loadData(showErrors = true) {
     CHART_ANIMATION_ENABLED = true;
   } catch (err) {
     console.error('Failed to load Google Sheets data', err);
+    // A silent poll that fails leaves the dashboard showing old numbers with
+    // no visible sign of it. Count the failures so the topbar chip can say so.
+    state.failedPolls += 1;
+    updateStatusChips(state.claims);
     if (showErrors) {
       const banner = document.getElementById('global-error');
       banner.textContent = "Couldn't load live data from Google Sheets. Check CONFIG.SPREADSHEET_ID and that the sheet is shared as \"Anyone with the link — Viewer\".";
@@ -3205,8 +3668,22 @@ function enterApp(identity) {
   switchView('dashboard');
   loadData();
 
+  // Polling pauses while the tab is hidden: nobody is looking, and a
+  // background tab quietly hammering the sheet every minute is what gets an
+  // account throttled. Coming back to the tab triggers an immediate catch-up
+  // read instead of waiting out the rest of the interval.
   if (state.pollHandle) clearInterval(state.pollHandle);
-  state.pollHandle = setInterval(() => loadData(false), CONFIG.POLL_INTERVAL_MS);
+  state.pollHandle = setInterval(() => {
+    if (document.hidden) return;
+    loadData(false);
+  }, CONFIG.POLL_INTERVAL_MS);
+
+  if (!state.visibilityHooked) {
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && state.identity) loadData(false);
+    });
+    state.visibilityHooked = true;
+  }
 
   // Best-effort background renewal so the token is rarely close to expiry
   // by the time someone hits Save — failures here are fine to ignore,
@@ -3217,8 +3694,27 @@ function enterApp(identity) {
   }, 45 * 60 * 1000);
 }
 
+// Roster and Targets are optional tabs, so a failure here is never fatal —
+// it just means the hardcoded lists stay in charge. The promise is awaited by
+// handleCredentialResponse so a fresh sign-in can't race the roster and
+// decide an agent "isn't set up" simply because the tab hadn't loaded yet.
+let rosterReady = null;
+function loadSheetConfig() {
+  rosterReady = Promise.all([
+    fetchRoster().catch((e) => { console.warn('Roster tab not loaded — using the built-in list:', e.message); return null; }),
+    fetchTargets().catch((e) => { console.warn('Targets tab not loaded — using the built-in tiers:', e.message); return null; }),
+  ]).then(([roster, targets]) => {
+    // Only overwrite on a usable read. A transient network blip shouldn't
+    // silently demote everyone back to the built-in lists mid-session.
+    if (roster) state.roster = roster;
+    if (targets) state.targets = targets;
+  });
+  return rosterReady;
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   initTheme();
+  loadSheetConfig();
   initGoogleSignIn();
   const saved = localStorage.getItem('takahami_identity');
   if (saved) {
