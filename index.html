@@ -1595,7 +1595,20 @@ function initGoogleSignIn() {
 function signOut() {
   localStorage.removeItem('takahami_identity');
   if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
-  if (state.pollHandle) clearInterval(state.pollHandle);
+  if (state.pollHandle) { clearInterval(state.pollHandle); state.pollHandle = null; }
+  // The background token refresh has to stop too, otherwise it keeps prompting
+  // Google on the login screen for an account we've just signed out of.
+  if (state.tokenRefreshHandle) { clearInterval(state.tokenRefreshHandle); state.tokenRefreshHandle = null; }
+  // Clearing the identity is what lets the SAME person sign back in without
+  // reloading: handleCredentialResponse treats a matching email as a token
+  // renewal and returns early, so leaving this set meant a re-login swapped the
+  // token and never called enterApp — the app stayed hidden behind the login
+  // screen until a hard refresh.
+  state.identity = null;
+  state.dashFiltersBarSig = null;
+  state.historyFiltersBarSig = null;
+  state.profileLogControlsSig = null;
+  destroyAllCharts();
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
 }
@@ -1664,7 +1677,9 @@ function renderTopbarUser() {
   document.getElementById('user-name').textContent = state.identity.name || '';
   document.getElementById('greeting').textContent = 'Welcome back' + (state.identity.name ? ', ' + firstNameOf(state.identity.name) : '');
   document.getElementById('signout-btn').innerHTML = ICONS.logout;
-  document.getElementById('signout-btn').addEventListener('click', signOut);
+  // Assignment, not addEventListener — renderTopbarUser runs once per enterApp,
+  // so a second sign-in in the same tab used to stack a second handler.
+  document.getElementById('signout-btn').onclick = signOut;
 }
 
 /* ==========================================================================
@@ -1763,14 +1778,27 @@ function renderDashboard() {
     document.getElementById('filters-bar').innerHTML = filtersBarHtml(filters, { showDateRange: true, showExport: true, showMonthlyToggle: true, showClientReport: true });
     wireFilterInputs('filters-bar', filters, renderDashboard);
     wireMonthStepper('filters-bar', filters, renderDashboard);
-    wireMonthlyToggle('filters-bar', filters);
-    wireClientToggle('filters-bar', filters);
-    document.getElementById('export-btn').onclick = () => {
-      const { filteredClaims } = applyFilters(state.claims, state.attendance, filters);
-      downloadCsv(exportFilename(filters), claimsToCsv(filteredClaims));
-    };
     state.dashFiltersBarSig = sig;
   }
+
+  // Monthly View / Client Reports / Export are re-bound on EVERY dashboard
+  // render, not just when the filters bar is rebuilt. They all use .onclick
+  // (assignment, not addEventListener), so re-binding is idempotent — no
+  // duplicate handlers. The reason this matters: these handlers close over the
+  // `filters` object they were given. If state.dashFilters is ever replaced
+  // (it is, on every enterApp — e.g. signing in again without reloading) while
+  // the filters bar itself is NOT rebuilt (it isn't, when the agent/year lists
+  // are unchanged), the buttons keep mutating the OLD object. Clicking then
+  // appears to work, but the next background poll re-renders from the NEW
+  // object, where showMonthlyGrid/showClientReport are still false — so the
+  // card silently vanishes a few seconds after opening it.
+  wireMonthlyToggle('filters-bar', filters);
+  wireClientToggle('filters-bar', filters);
+  const exportBtn = document.getElementById('export-btn');
+  if (exportBtn) exportBtn.onclick = () => {
+    const { filteredClaims } = applyFilters(state.claims, state.attendance, filters);
+    downloadCsv(exportFilename(filters), claimsToCsv(filteredClaims));
+  };
 
   const { filteredClaims, filteredAttendance } = applyFilters(state.claims, state.attendance, filters);
   safeRender('monthly-grid', () => renderMonthlyGrid(filters));
@@ -3157,6 +3185,16 @@ function enterApp(identity) {
   document.getElementById('app').style.display = 'block';
 
   const { year: currentYear, month: currentMonth } = nowInZone();
+  // Fresh filter objects mean every cached control set is stale: the existing
+  // <select>/stepper handlers still point at the previous session's filter
+  // objects. Clearing the signatures forces the bars to be rebuilt and rewired
+  // against these new objects on the next render, instead of silently keeping
+  // handlers that mutate something nothing reads any more.
+  state.dashFiltersBarSig = null;
+  state.historyFiltersBarSig = null;
+  state.profileLogControlsSig = null;
+  destroyAllCharts();
+
   state.dashFilters = { year: currentYear, month: currentMonth, agent: 'all', showMonthlyGrid: false, showClientReport: false };
   state.historyFilters = { year: currentYear, month: 'all', agent: 'all' };
   state.profileLogFilters = { year: currentYear, month: currentMonth };
