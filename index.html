@@ -90,10 +90,6 @@
   .skeleton-line { background: linear-gradient(90deg, rgb(var(--ink)/.05) 25%, rgb(var(--ink)/.09) 37%, rgb(var(--ink)/.05) 63%); background-size: 400% 100%; animation: shimmer 1.4s ease infinite; border-radius: .5rem; }
 
   /* ============ LAYOUT ============ */
-  #login-screen {
-    min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1rem;
-  }
-  #login-card { width: 100%; max-width: 25rem; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 1.15rem; padding: 2.5rem 2rem; }
   .logo-badge {
     width: 3.25rem; height: 3.25rem; border-radius: 1.1rem; display: flex; align-items: center; justify-content: center;
     background: linear-gradient(160deg, rgb(var(--primary)), rgb(var(--primary-deep))); color: white; font-size: 1.35rem;
@@ -562,33 +558,151 @@
     .ring-sub { display: none; }
   }
 
-  /* Login */
-  #login-card { overflow: hidden; }
-  .login-brand { align-self: stretch; margin: -2.5rem -2rem .25rem; padding: 1.5rem 1rem; background: linear-gradient(100deg, #0B1B3F 0%, #142A5C 55%, rgb(var(--primary-deep)) 100%); display: flex; justify-content: center; }
-  .login-brand img { height: 2.6rem; width: auto; }
-  .login-note { display: flex; align-items: center; gap: .4rem; font-size: .74rem; color: rgb(var(--muted)); }
-  .login-note svg { width: .9rem; height: .9rem; flex-shrink: 0; }
+  /* ============ LOGIN (split screen) ============ */
+  #login-screen {
+    min-height: 100vh; display: flex; align-items: stretch;
+    background: rgb(var(--surface));
+  }
+  /* Brand side — always navy, matching the top navigation bar */
+  .login-aside {
+    position: relative; overflow: hidden; isolation: isolate;
+    flex: 0 0 46%; max-width: 44rem;
+    display: flex; flex-direction: column; justify-content: space-between; gap: 3rem;
+    padding: 2.75rem 3.5rem;
+    background: linear-gradient(155deg, #0B1B3F 0%, #0F2350 50%, #152F6B 100%);
+    color: #E6ECF7;
+  }
+  .login-aside::after {
+    /* hairline top highlight so the panel edge reads crisply on bright screens */
+    content: ""; position: absolute; inset: 0 0 auto 0; height: 1px; background: rgba(255,255,255,.08);
+  }
+  .login-hex {
+    position: absolute; z-index: -1; right: -17rem; bottom: -17rem; width: 46rem; height: auto;
+    color: #5BB4F0; opacity: .16; pointer-events: none;
+  }
+  .login-aside-logo { height: 2.9rem; width: auto; display: block; align-self: flex-start; }
+  .login-pitch { max-width: 27rem; }
+  .login-pitch h2 {
+    font-size: clamp(1.75rem, 2.6vw, 2.35rem); line-height: 1.15; font-weight: 700;
+    letter-spacing: -.025em; margin: 0 0 1rem; color: #fff;
+  }
+  .login-pitch p { font-size: 1rem; line-height: 1.6; margin: 0; color: rgba(230,236,247,.72); }
+  .login-points { list-style: none; margin: 2.25rem 0 0; padding: 0; display: grid; gap: 1.1rem; }
+  .login-points li { display: grid; grid-template-columns: 2.25rem 1fr; gap: .9rem; align-items: start; }
+  .login-points .pt-icon {
+    width: 2.25rem; height: 2.25rem; border-radius: .6rem; display: grid; place-items: center;
+    background: rgba(91,180,240,.12); color: #7CC4F4; box-shadow: inset 0 0 0 1px rgba(124,196,244,.18);
+  }
+  .login-points .pt-icon svg { width: 1.1rem; height: 1.1rem; }
+  .login-points strong { display: block; font-size: .92rem; font-weight: 600; color: #fff; margin-top: .1rem; }
+  .login-points span { display: block; font-size: .84rem; line-height: 1.5; color: rgba(230,236,247,.62); margin-top: .15rem; }
+  .login-aside-foot { font-size: .78rem; color: rgba(230,236,247,.5); }
+
+  /* Form side — follows the light/dark theme */
+  .login-main {
+    flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;
+    padding: 2rem 2.5rem; background: rgb(var(--surface));
+  }
+  .login-main-top { display: flex; justify-content: flex-end; min-height: 1.5rem; }
+  .login-form-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 2.5rem 0; }
+  #login-card {
+    width: 100%; max-width: 23rem; display: flex; flex-direction: column; align-items: stretch; gap: 0;
+    animation: fade-up .5s cubic-bezier(.16,1,.3,1) both;
+  }
+  .login-mobile-brand { display: none; }
+  .login-title { font-size: 1.75rem; line-height: 1.2; font-weight: 700; letter-spacing: -.02em; margin: 0; }
+  .login-sub { font-size: .92rem; line-height: 1.55; color: rgb(var(--muted)); margin: .6rem 0 0; }
+  .login-google { margin-top: 2rem; min-height: 44px; display: flex; justify-content: flex-start; width: 100%; }
+  #login-error {
+    margin: 1rem 0 0; padding: .75rem .9rem; border-radius: .6rem;
+    font-size: .82rem; line-height: 1.5; font-weight: 500;
+    color: rgb(var(--ink)); background: rgb(var(--warm) / .1); box-shadow: inset 3px 0 0 rgb(var(--warm));
+  }
+  .login-divider { height: 1px; background: rgb(var(--border)); margin: 2rem 0 1.25rem; }
+  .login-note { display: flex; align-items: flex-start; gap: .55rem; font-size: .8rem; line-height: 1.5; color: rgb(var(--muted)); }
+  .login-note svg { width: 1rem; height: 1rem; flex-shrink: 0; margin-top: .1rem; color: rgb(var(--accent)); }
+  .login-note + .login-note svg { color: rgb(var(--muted)); }
+  .login-note + .login-note { margin-top: .75rem; }
+  .login-note b { font-weight: 600; color: rgb(var(--ink)); }
+  .login-main-foot { font-size: .75rem; color: rgb(var(--muted)); text-align: center; }
+
+  @media (max-width: 1100px) {
+    .login-aside { flex-basis: 42%; padding: 2.5rem 2.5rem; }
+  }
+  @media (max-width: 860px) {
+    #login-screen { flex-direction: column; }
+    .login-aside { display: none; }
+    .login-main { padding: 0; }
+    .login-main-top { display: none; }
+    .login-mobile-brand {
+      display: flex; margin: 0 0 2rem; padding: 1.1rem 1.25rem; border-radius: .9rem;
+      background: linear-gradient(100deg, #0B1B3F 0%, #142A5C 60%, #1D4ED8 100%);
+    }
+    .login-mobile-brand img { height: 2rem; width: auto; object-fit: contain; }
+    .login-form-wrap { padding: 2rem 1.25rem; align-items: flex-start; }
+    .login-main-foot { padding: 0 1.25rem 1.5rem; }
+  }
+  @media (prefers-reduced-motion: reduce) { #login-card { animation: none; } }
 </style>
 </head>
 <body>
 
 <!-- ============ LOGIN SCREEN ============ -->
 <div id="login-screen">
-  <div id="login-card" class="glass card">
-    <div class="login-brand"><img id="login-logo" alt="Takahami Billing" /></div>
-    <div>
-      <h1 style="font-size:1.4rem; font-weight:700; margin:0;">Takahami Agent Dashboard</h1>
-      <p style="font-size:.85rem; color:rgb(var(--muted)); margin:.5rem 0 0;">Sign in with your company Google account to log and view your productivity.</p>
+  <aside class="login-aside">
+    <svg class="login-hex" viewBox="0 0 200 200" fill="none" stroke="currentColor" aria-hidden="true">
+      <path d="M100 6 181 53v94l-81 47-81-47V53z" stroke-width=".6"/>
+      <path d="M100 28 162 64v72l-62 36-62-36V64z" stroke-width=".6"/>
+      <path d="M100 50 143 75v50l-43 25-43-25V75z" stroke-width=".6"/>
+      <path d="M100 72 124 86v28l-24 14-24-14V86z" stroke-width=".6"/>
+      <path d="M100 6v44M181 53l-38 22M181 147l-38-22M100 194v-44M19 147l38-22M19 53l38 22" stroke-width=".4"/>
+    </svg>
+    <img class="login-aside-logo" id="login-logo" alt="Takahami Billing" />
+    <div class="login-pitch">
+      <h2>Your claims, KPI tier and attendance in one place.</h2>
+      <p>The agent dashboard for Takahami Medical Billing. Log each day's work and see how you're tracking against this month's targets.</p>
+      <ul class="login-points">
+        <li>
+          <div class="pt-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></div>
+          <div><strong>Log daily claims</strong><span>Record claims processed per facility in a few seconds.</span></div>
+        </li>
+        <li>
+          <div class="pt-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg></div>
+          <div><strong>Track your KPI tier</strong><span>See your daily average and how far you are from the next tier.</span></div>
+        </li>
+        <li>
+          <div class="pt-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+          <div><strong>Follow team performance</strong><span>Managers get the full team view, monthly grid and client reports.</span></div>
+        </li>
+      </ul>
     </div>
-    <div id="g_id_signin_container" style="display:flex; justify-content:center; width:100%;"></div>
-    <p id="login-error" class="hidden" style="font-size:.75rem; font-weight:600; color:rgb(var(--warm)); margin:0;">
-      That account isn't set up as an agent on this dashboard. Contact your manager if this seems wrong.
-    </p>
-    <div class="login-note">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-      Only verified allianceglobalsolutions.com accounts can sign in.
+    <div class="login-aside-foot">&copy; <span id="login-year">2026</span> Takahami Medical Billing</div>
+  </aside>
+
+  <main class="login-main">
+    <div class="login-main-top"></div>
+    <div class="login-form-wrap">
+      <div id="login-card">
+        <div class="login-mobile-brand"><img id="login-logo-mobile" alt="Takahami Billing" /></div>
+        <h1 class="login-title">Sign in</h1>
+        <p class="login-sub">Use your company Google account to open the Takahami Agent Dashboard.</p>
+        <div id="g_id_signin_container" class="login-google"></div>
+        <p id="login-error" class="hidden" role="alert">
+          That account isn't set up as an agent on this dashboard. Contact your manager if this seems wrong.
+        </p>
+        <div class="login-divider"></div>
+        <div class="login-note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+          <span>Only verified <b>allianceglobalsolutions.com</b> accounts can sign in.</span>
+        </div>
+        <div class="login-note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+          <span>Can't sign in? Ask your manager to confirm you're on the roster.</span>
+        </div>
+      </div>
     </div>
-  </div>
+    <div class="login-main-foot">Secured with Google Workspace sign-in</div>
+  </main>
 </div>
 
 <!-- ============ APP SHELL ============ -->
@@ -2089,7 +2203,7 @@ function initGoogleSignIn() {
     use_fedcm_for_prompt: true,
   });
   google.accounts.id.renderButton(document.getElementById('g_id_signin_container'), {
-    theme: 'filled_black', size: 'large', shape: 'pill', text: 'continue_with', width: 320,
+    theme: 'outline', size: 'large', shape: 'rectangular', text: 'signin_with', logo_alignment: 'left', width: Math.min(368, Math.max(240, document.getElementById('g_id_signin_container').clientWidth || 368)),
   });
 }
 
@@ -4141,6 +4255,10 @@ window.addEventListener('DOMContentLoaded', () => {
   const loginLogo = document.getElementById('login-logo');
   const brandLogo = document.querySelector('.brand-logo');
   if (loginLogo && brandLogo) loginLogo.src = brandLogo.src;
+  const loginLogoMobile = document.getElementById('login-logo-mobile');
+  if (loginLogoMobile && brandLogo) loginLogoMobile.src = brandLogo.src;
+  const loginYear = document.getElementById('login-year');
+  if (loginYear) loginYear.textContent = new Date().getFullYear();
   initTheme();
   loadSheetConfig();
   initGoogleSignIn();
