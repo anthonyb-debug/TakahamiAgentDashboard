@@ -275,14 +275,16 @@
   .ring-sub { font-size: .65rem; color: rgb(var(--muted) / .8); }
 
   /* ============ TWO COLUMN GRID ============ */
-  .two-col { display: grid; grid-template-columns: 1fr; gap: 1.1rem; align-items: start; }
-  @media (min-width: 1280px) { .two-col { grid-template-columns: 2fr 1fr; } }
-  .charts-col { display: flex; flex-direction: column; gap: 1.1rem; }
-  .side-col { display: flex; flex-direction: column; gap: 1.1rem; }
-  .chart-grid-2 { display: grid; grid-template-columns: 1fr; gap: 1.1rem; }
-  @media (min-width: 640px) { .chart-grid-2 { grid-template-columns: 1fr 1fr; } }
+  .two-col { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.1rem; align-items: start; }
+  @media (min-width: 1280px) { .two-col { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); } }
+  .charts-col { display: flex; flex-direction: column; gap: 1.1rem; min-width: 0; }
+  .side-col { display: flex; flex-direction: column; gap: 1.1rem; min-width: 0; }
+  .chart-grid-2 { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.1rem; }
+  .chart-grid-2 > * { min-width: 0; }
+  @media (min-width: 640px) { .chart-grid-2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
   .chart-title { font-size: 1.05rem; font-weight: 700; margin: 0 0 .8rem; letter-spacing: -.01em; }
-  .chart-wrap { height: 230px; position: relative; }
+  .chart-wrap { height: 230px; position: relative; min-width: 0; }
+  .chart-wrap canvas { max-width: 100%; }
   #chart-facility-split-wrap { height: 220px; }
   @media (min-width: 640px) { #chart-facility-split-wrap { height: 260px; } }
 
@@ -492,7 +494,7 @@
   .lb-bar > span { display: block; height: 100%; background: rgb(var(--primary) / .55); border-radius: inherit; }
   .lb-row.me .lb-bar > span { background: rgb(var(--primary)); }
   .insights-grid.compact { grid-template-columns: 1fr 1fr; }
-  .chart-grid-2.single { grid-template-columns: 1fr; }
+  .chart-grid-2.single { grid-template-columns: minmax(0, 1fr); }
   .chart-note { font-size: .76rem; color: rgb(var(--muted)); margin: -.45rem 0 .7rem; }
   .chart-note i { display: inline-block; width: .65rem; height: .65rem; border-radius: .18rem; vertical-align: -1px; margin: 0 .25rem 0 .1rem; }
 
