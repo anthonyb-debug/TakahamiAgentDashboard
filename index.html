@@ -3154,15 +3154,17 @@ function renderClientReport(filters) {
     : `${MONTH_NAMES[filters.month - 1]} ${filters.year}`;
 
   const { list, totals } = clientReportData(state.consolidated, filters);
-  // Work days, Avg / day and KPI tier come from the Prod tab through the same
-  // function as the dashboard, so these numbers always match it exactly.
+  // Avg / day on the client report = the CLIENT's Total Claims (Consolidated
+  // tab) ÷ the agent's work days. Work days still come from the Prod tab,
+  // because that's where VL / CH / ABS are recorded (ABS counts as a work
+  // day; VL, CH and blank days don't). The KPI tier is scored on that average.
   const { filteredClaims: crClaims, filteredAttendance: crAtt } = applyFilters(state.claims, state.attendance, { year: filters.year, month: filters.month, agent: 'all' });
   const perf = new Map(computeAgentSummaries(crClaims, crAtt, list.map((x) => x.agent)).map((s) => [s.agent, s]));
   list.forEach((x) => {
     const s = perf.get(x.agent);
     x.workDays = s ? s.countedDays : 0;
-    x.avgPerDay = s && s.countedDays ? s.avgClaimsPerDay : null;
-    x.kpi = s ? s.kpi : null;
+    x.avgPerDay = x.workDays ? x.total / x.workDays : null;
+    x.kpi = x.avgPerDay === null ? null : calculateKpi(x.agent, x.avgPerDay);
   });
   const withAvg = list.filter((x) => x.avgPerDay !== null);
   totals.workDays = list.reduce((t, x) => t + x.workDays, 0);
@@ -3201,10 +3203,10 @@ function renderClientReport(filters) {
         <table class="dc-table">
           <thead><tr><th>Agent</th><th class="num">Legacy Facility</th><th class="num">Outside Facility</th><th class="num">Total Claims</th><th class="num">Work Days</th><th class="num">Avg Claims / Day</th><th class="num">KPI Tier</th></tr></thead>
           <tbody>${bodyRows}</tbody>
-          <tfoot><tr><td>Grand Total</td><td class="num">${fmtNum(totals.legacy)}</td><td class="num">${fmtNum(totals.outside)}</td><td class="num">${fmtNum(totals.total)}</td><td class="num">${totals.workDays}</td><td class="num" title="Average of each agent's Avg / day, same as the dashboard">${totals.avgPerDay === null ? '—' : fmtNum(totals.avgPerDay, 1)}</td><td></td></tr></tfoot>
+          <tfoot><tr><td>Grand Total</td><td class="num">${fmtNum(totals.legacy)}</td><td class="num">${fmtNum(totals.outside)}</td><td class="num">${fmtNum(totals.total)}</td><td class="num">${totals.workDays}</td><td class="num" title="Average of each agent's Avg / day">${totals.avgPerDay === null ? '—' : fmtNum(totals.avgPerDay, 1)}</td><td></td></tr></tfoot>
         </table>
       </div>
-      <p class="card-note">Work Days, Avg Claims / Day and KPI Tier are calculated from the Prod tab, the same as the dashboard (VL and CH excluded). The team figure is the average of each agent's Avg / day.</p>
+      <p class="card-note">Avg Claims / Day = Total Claims ÷ Work Days, and the KPI Tier is based on that average. Work Days come from the Prod tab: ABS counts as a work day; VL, CH and blank days don't. The team figure is the average of each agent's Avg / day.</p>
     </div>`;
 
   const exportBtn = document.getElementById('cr-export-btn');
