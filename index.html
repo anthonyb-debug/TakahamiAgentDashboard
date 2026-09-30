@@ -279,6 +279,16 @@
   @media (min-width: 1280px) { .two-col { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); } }
   .charts-col { display: flex; flex-direction: column; gap: 1.1rem; min-width: 0; }
   .side-col { display: flex; flex-direction: column; gap: 1.1rem; min-width: 0; }
+  .side-mount:empty { display: none; }
+  .mini-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .mini-list li { display: flex; gap: .75rem; justify-content: space-between; align-items: baseline; padding: .5rem 0; border-top: 1px solid rgb(var(--border)); font-size: .82rem; }
+  .mini-list li:first-child { border-top: 0; padding-top: 0; }
+  .mini-list .ml-date { color: rgb(var(--muted)); white-space: nowrap; font-size: .76rem; }
+  .mini-list .ml-main { min-width: 0; }
+  .mini-list .ml-main p { margin: 0; }
+  .mini-list .ml-sub { color: rgb(var(--muted)); font-size: .74rem; margin-top: .1rem !important; overflow-wrap: anywhere; }
+  .mini-names { display: flex; flex-wrap: wrap; gap: .3rem .5rem; justify-content: flex-end; }
+  .card-note { font-size: .74rem; color: rgb(var(--muted)); margin: .7rem 0 0; }
   .chart-grid-2 { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.1rem; }
   .chart-grid-2 > * { min-width: 0; }
   @media (min-width: 640px) { .chart-grid-2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
@@ -376,6 +386,9 @@
     font-weight: 800; text-align: right; border-top: 2px solid rgb(var(--border)); border-bottom: none; color: rgb(var(--ink));
   }
   table.mgrid tfoot td.mgrid-date { left: 0; z-index: 3; text-align: left; }
+  table.mgrid tfoot tr.mgrid-sub td { position: static; font-weight: 600; color: rgb(var(--muted)); border-top: 1px solid rgb(var(--border) / .5); }
+  table.mgrid tfoot tr.mgrid-sub td.mgrid-date { position: sticky; left: 0; }
+  table.mgrid tfoot tr.mgrid-sub + tr.mgrid-sub td { border-top: 0; }
   table.mgrid tfoot td.mgrid-grand { background: rgb(var(--primary) / .12); color: rgb(var(--primary)); }
   /* Subtle heat shading toggled per-cell via inline alpha */
   table.mgrid td.mgrid-cell[data-heat] { background: rgb(var(--primary) / var(--heat, 0)); }
@@ -762,6 +775,7 @@
         <div id="missing-entries-mount"></div>
         <div class="dash-tabs-row">
           <div class="seg" role="tablist" aria-label="Dashboard view" id="dash-tabs"></div>
+          <button type="button" class="btn btn-glass btn-sm" id="month-summary-btn"></button>
         </div>
         <div id="monthly-grid-mount" style="margin-top:1.1rem;"></div>
         <div id="client-report-mount" style="margin-top:1.1rem;"></div>
@@ -799,6 +813,8 @@
             </div>
             <div class="side-col">
               <div class="glass card" id="leaderboard-mount"></div>
+              <div id="upcoming-leave-mount" class="side-mount"></div>
+              <div id="late-edits-mount" class="side-mount"></div>
               <div class="glass card" id="insights-mount"></div>
             </div>
           </div>
@@ -927,6 +943,14 @@ const CONFIG = {
   // the tab is in the background and a poll that returns byte-identical data
   // skips the re-render entirely, so this is far cheaper than it looks.
   POLL_INTERVAL_MS: 60000,
+
+  // An entry saved more than this many calendar days after its date is
+  // listed under "Late edits" for managers (e.g. an old 0 changed to VL).
+  // Needs the Last Updated column (G) to be stamped on every edit.
+  LATE_EDIT_DAYS: 3,
+
+  // How far ahead the "Upcoming leave" card looks, in calendar days.
+  UPCOMING_LEAVE_DAYS: 14,
 
   // The URL of the Google Apps Script Web App that lets this page write
   // claims counts back into the Prod tab. See README.md — "Enable logging
@@ -1603,6 +1627,7 @@ async function fetchClaims() {
         date: isoDate, agent: String(r[4]).trim(),
         ...entry,
         loggedAt: parseLoggedAt(r[6]),
+        updatedBy: String(r[7] ?? '').trim(),
       };
     });
 }
@@ -1880,8 +1905,14 @@ function computeAgentSummaries(claims, attendance, agentNames) {
     const kpi = calculateKpi(agent, avgClaimsPerDay);
     return { agent, todayClaims, mtdClaims, avgClaimsPerDay, countedDays, absDays, vlDays, chDays, attendancePct, kpi, rank: 0 };
   });
-  // Same ordering as before (stable sort by claims), without the per-row lookup.
-  summaries.sort((a, b) => b.mtdClaims - a.mtdClaims);
+  // Ranked by Avg Claims / Day (the same number KPI tiers are scored on),
+  // so days on VL / CH never push anyone down. Agents with no work days
+  // yet go last; ties fall back to total claims, then name.
+  summaries.sort((a, b) =>
+    (b.countedDays > 0) - (a.countedDays > 0)
+    || b.avgClaimsPerDay - a.avgClaimsPerDay
+    || b.mtdClaims - a.mtdClaims
+    || a.agent.localeCompare(b.agent));
   summaries.forEach((s, i) => { s.rank = i + 1; });
   return summaries;
 }
@@ -2490,10 +2521,40 @@ function invalidEntriesBannerHtml(agentFilter) {
     </div>`;
 }
 
+// Two or more filled rows for the same agent and date. The month total adds
+// every row but the date counts as one work day, so a duplicate inflates
+// Avg Claims / Day. The app doesn't guess which row is right; it flags them.
+function findDuplicateEntries(agentFilter) {
+  const groups = new Map();
+  for (const c of state.claims) {
+    if (!(c.logged || c.excused || c.invalid)) continue;
+    if (agentFilter && c.agent !== agentFilter) continue;
+    const key = c.agent + '|' + c.date;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(c);
+  }
+  return [...groups.values()].filter((g) => g.length > 1)
+    .sort((a, b) => b[0].date.localeCompare(a[0].date));
+}
+function duplicateEntriesBannerHtml(agentFilter) {
+  const dups = findDuplicateEntries(agentFilter);
+  if (!dups.length) return '';
+  const valueOf = (c) => (c.excused || (c.invalid ? `"${c.invalid}"` : c.absent ? 'ABS' : fmtNum(c.claims)));
+  const examples = dups.slice(0, 3).map((g) =>
+    `${agentFilter ? '' : escHtml(firstNameOf(g[0].agent)) + ' '}${escHtml(fmtAxisDate(g[0].date))} (${g.map((c) => escHtml(valueOf(c))).join(' + ')})`
+  ).join(', ');
+  return `
+    <div class="notice-banner" style="margin-top:1.1rem;">
+      <div class="notice-icon">${ICONS.alert}</div>
+      <span><strong>${dups.length} date${dups.length !== 1 ? 's have' : ' has'} more than one row</strong> in the sheet: ${examples}${dups.length > 3 ? ', …' : ''}. Every row is added to the total, which inflates Avg Claims / Day. Delete the extra row${dups.length !== 1 ? 's' : ''} in the Prod tab.</span>
+    </div>`;
+}
+
 function renderMissingEntriesAlert() {
   const mount = document.getElementById('missing-entries-mount');
   const isManager = state.identity.role === 'manager';
-  const invalidHtml = invalidEntriesBannerHtml(isManager ? null : matchAgentName());
+  const invalidHtml = invalidEntriesBannerHtml(isManager ? null : matchAgentName())
+    + duplicateEntriesBannerHtml(isManager ? null : matchAgentName());
 
   if (isManager) {
     const loggedIndex = loggedDatesByAgent(state.claims);
@@ -2659,6 +2720,9 @@ function renderDashboard() {
 
   safeRender('daily-claims', () => renderDailyClaimsTable(filteredClaims, filters.agent, 'daily-claims-mount'));
   safeRender('leaderboard', () => renderLeaderboard(teamSummaries, 'leaderboard-mount', filters));
+  safeRender('upcoming-leave', renderUpcomingLeave);
+  safeRender('late-edits', renderLateEdits);
+  safeRender('month-summary-btn', () => wireMonthSummaryButton(filters));
   safeRender('insights', () => renderInsights(computeInsights(filteredClaims.filter((c) => c.logged), filteredAttendance), 'insights-mount'));
 
   safeRender('trend-chart', () => renderLineChart('chart-claims-trend', claimsTrendSeries(filteredClaims), 'date', 'claims', 'primary', true));
@@ -2782,7 +2846,9 @@ function monthlyGridData(claims, year, month) {
     }
     if (!c.logged) return;
     if (matrix[c.date] && Object.prototype.hasOwnProperty.call(matrix[c.date], c.agent)) {
-      matrix[c.date][c.agent] = c.claims;
+      // Summed (not overwritten) so a duplicate row shows up here the same
+      // way it does in the dashboard totals; the duplicate banner flags it.
+      matrix[c.date][c.agent] = (matrix[c.date][c.agent] || 0) + c.claims;
       if (c.absent) absent.add(c.date + '|' + c.agent);
     }
   });
@@ -2798,7 +2864,17 @@ function monthlyGridData(claims, year, month) {
   const colMax = {};
   agents.forEach((a) => { colMax[a] = days.reduce((m, d) => Math.max(m, matrix[d][a] || 0), 0); });
 
-  return { days, agents, matrix, rowTotals, colTotals, grand, colMax, absent, marks };
+  // Per-agent work days, counted exactly like Avg Claims / Day on the
+  // dashboard: dates with a number (ABS included); VL, CH and blanks left out.
+  const workDays = {};
+  const avgPerDay = {};
+  agents.forEach((a) => {
+    workDays[a] = days.filter((d) => matrix[d][a] !== null).length;
+    avgPerDay[a] = workDays[a] ? colTotals[a] / workDays[a] : 0;
+  });
+  const teamAvg = agents.length ? agents.reduce((t, a) => t + avgPerDay[a], 0) / agents.length : 0;
+
+  return { days, agents, matrix, rowTotals, colTotals, grand, colMax, absent, marks, workDays, avgPerDay, teamAvg };
 }
 
 function renderMonthlyGrid(filters) {
@@ -2817,7 +2893,8 @@ function renderMonthlyGrid(filters) {
     return;
   }
 
-  const { days, agents, matrix, rowTotals, colTotals, grand, colMax, absent, marks } = monthlyGridData(state.claims, filters.year, filters.month);
+  const gridData = monthlyGridData(state.claims, filters.year, filters.month);
+  const { days, agents, matrix, rowTotals, colTotals, grand, colMax, absent, marks, workDays, avgPerDay, teamAvg } = gridData;
 
   if (!days.length) {
     mount.innerHTML = `
@@ -2852,6 +2929,9 @@ function renderMonthlyGrid(filters) {
   }).join('');
 
   const footCells = agents.map((a) => `<td>${fmtNum(colTotals[a])}</td>`).join('');
+  const workDayCells = agents.map((a) => `<td>${workDays[a]}</td>`).join('');
+  const avgCells = agents.map((a) => `<td>${workDays[a] ? fmtNum(avgPerDay[a], 1) : '—'}</td>`).join('');
+  const totalWorkDays = agents.reduce((t, a) => t + workDays[a], 0);
 
   mount.innerHTML = `
     <div class="glass card">
@@ -2863,14 +2943,18 @@ function renderMonthlyGrid(filters) {
             <input type="checkbox" id="mgrid-heat-toggle" ${heatOn ? 'checked' : ''} style="width:auto; margin:0;"> Heat map
           </label>
           <button class="btn btn-glass btn-sm" id="mgrid-export-btn">${ICONS.download}Export grid</button>
-          <span>${days.length} day${days.length !== 1 ? 's' : ''} &middot; ${fmtNum(grand)} claims</span>
+          <span>${fmtNum(grand)} claims &middot; team avg ${fmtNum(teamAvg, 1)} / day</span>
         </div>
       </div>
       <div class="mgrid-wrap">
         <table class="mgrid">
           <thead><tr><th class="mgrid-date">Date</th>${headCells}<th class="mgrid-total">Grand Total</th></tr></thead>
           <tbody>${bodyRows}</tbody>
-          <tfoot><tr><td class="mgrid-date">Grand Total</td>${footCells}<td class="mgrid-grand">${fmtNum(grand)}</td></tr></tfoot>
+          <tfoot>
+            <tr class="mgrid-sub"><td class="mgrid-date" title="Days with a number logged (ABS included). VL, CH and blank days are left out.">Work days</td>${workDayCells}<td class="mgrid-total" title="Agent work days, all agents">${totalWorkDays}</td></tr>
+            <tr class="mgrid-sub"><td class="mgrid-date" title="Total claims ÷ work days">Avg / day</td>${avgCells}<td class="mgrid-total" title="Average of each agent's Avg / day">${fmtNum(teamAvg, 1)}</td></tr>
+            <tr><td class="mgrid-date">Grand Total</td>${footCells}<td class="mgrid-grand">${fmtNum(grand)}</td></tr>
+          </tfoot>
         </table>
       </div>
     </div>`;
@@ -2880,7 +2964,7 @@ function renderMonthlyGrid(filters) {
 
   const exportBtn = document.getElementById('mgrid-export-btn');
   if (exportBtn) exportBtn.onclick = () => {
-    const csv = monthlyGridToCsv({ days, agents, matrix, rowTotals, colTotals, grand }, filters.year);
+    const csv = monthlyGridToCsv(gridData, filters.year);
     const safe = (s) => String(s).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
     downloadCsv(`Takahami-Monthly-${safe(MONTH_NAMES[filters.month - 1])}-${filters.year}.csv`, csv);
   };
@@ -2889,7 +2973,7 @@ function renderMonthlyGrid(filters) {
 // CSV that mirrors the on-screen pivot (same shape as the Google Sheet
 // export): a header row of agents, one row per day, a Grand Total column,
 // and a Grand Total row. Blank cells stay blank; absent days export as 0.
-function monthlyGridToCsv({ days, agents, matrix, rowTotals, colTotals, grand, marks }, year) {
+function monthlyGridToCsv({ days, agents, matrix, rowTotals, colTotals, grand, marks, workDays, avgPerDay, teamAvg }, year) {
   const esc = (s) => {
     const str = String(s);
     return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
@@ -2905,6 +2989,10 @@ function monthlyGridToCsv({ days, agents, matrix, rowTotals, colTotals, grand, m
     });
     lines.push([`${Number(m)}/${Number(day)}/${year}`, ...cells, rowTotals[d]].map(esc).join(','));
   });
+  if (workDays) {
+    lines.push(['Work days', ...agents.map((a) => workDays[a]), agents.reduce((t, a) => t + workDays[a], 0)].map(esc).join(','));
+    lines.push(['Avg / day', ...agents.map((a) => (workDays[a] ? (Math.round(avgPerDay[a] * 10) / 10).toFixed(1) : '')), (Math.round(teamAvg * 10) / 10).toFixed(1)].map(esc).join(','));
+  }
   lines.push(['Grand Total', ...agents.map((a) => colTotals[a]), grand].map(esc).join(','));
   return lines.join('\n');
 }
@@ -3138,6 +3226,43 @@ function deficitCardFields(deficit, stretchDeficit) {
   };
 }
 
+// End-of-month projection for the CURRENT month only: how many scheduled
+// work days are left (weekdays, not US federal holidays, not already marked
+// VL / CH, and today only if it hasn't been logged yet) and what average
+// those days need for the agent to finish the month on their target tier.
+// Uses the tier's min as the bar (the tier itself is scored on the rounded
+// average, so this errs half a claim on the safe side).
+function computeMonthProjection(claims, s, year, month) {
+  const now = nowInZone();
+  if (year !== now.year || month !== now.month) return null;
+  const mine = claims.filter((c) => c.agent === s.agent && c.year === year && c.month === month);
+  const handled = new Set(mine.filter(isHandledEntry).map((c) => c.date));
+  const today = todayISO();
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  let remaining = 0;
+  for (let d = now.day; d <= daysInMonth; d++) {
+    const iso = isoFromCalendar(calendarDate(year, month, d));
+    const dow = calendarDate(year, month, d).getUTCDay();
+    if (dow === 0 || dow === 6 || isFederalHoliday(iso)) continue;
+    if (handled.has(iso)) continue; // logged already, or planned VL / CH
+    if (iso < today) continue;
+    remaining++;
+  }
+  const tiers = getTiersForAgent(s.agent);
+  const target = s.kpi.nextTier || [...tiers].sort((a, b) => b.min - a.min)[0];
+  if (!remaining) return { remaining: 0, target, neededPerDay: null };
+  const neededTotal = target.min * (s.countedDays + remaining) - s.mtdClaims;
+  return { remaining, target, neededPerDay: Math.max(0, neededTotal / remaining), sustaining: !s.kpi.nextTier };
+}
+function projectionSubtext(proj, kpi) {
+  if (!proj) return kpiNextTierSubtext(kpi);
+  const tierName = `KPI ${proj.target.level}`;
+  if (!proj.remaining) return kpi.nextTier ? 'No work days left this month' : 'Top tier — month complete';
+  const left = `${proj.remaining} work day${proj.remaining !== 1 ? 's' : ''} left`;
+  if (proj.neededPerDay === 0) return `${left} · ${tierName} locked in`;
+  return `${left} · ${fmtNum(Math.ceil(proj.neededPerDay))}/day ${proj.sustaining ? 'keeps' : 'for'} ${tierName}`;
+}
+
 // Progress from the current tier's floor to the next tier's floor, on the
 // same rounded avg/day the tier is scored on.
 function tierProgressHtml(agentName, kpi, avg) {
@@ -3172,7 +3297,7 @@ function renderKpiCards(me, filters) {
     { icon: ICONS.calendarRange, label: filters && filters.month === 'all' ? 'Claims This Period' : 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), accent: 'primary', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.gauge, label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1), sub: avgMathSubtext(me), accent: 'primary', trendHtml: trend ? trendHtml(trend.avgClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.calendarCheck, label: 'Attendance', value: fmtPct(me.attendancePct), accent: 'primary', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
-    { icon: ICONS.award, label: 'Productivity KPI Tier', value: `KPI ${me.kpi.level}`, sub: kpiNextTierSubtext(me.kpi), accent: me.kpi.nextTier ? 'primary' : 'accent', extraHtml: tierProgressHtml(me.agent, me.kpi, me.avgClaimsPerDay) },
+    { icon: ICONS.award, label: 'Productivity KPI Tier', value: `KPI ${me.kpi.level}`, sub: projectionSubtext(filters && filters.month !== 'all' ? computeMonthProjection(state.claims, me, filters.year, filters.month) : null, me.kpi), accent: me.kpi.nextTier ? 'primary' : 'accent', extraHtml: tierProgressHtml(me.agent, me.kpi, me.avgClaimsPerDay) },
   ];
   document.getElementById('kpi-grid').innerHTML = kpiCardsHtml(cards);
 }
@@ -3290,30 +3415,176 @@ function renderAttendanceGoalCard(me) {
 // Ranking + comparison in one place: each row carries a bar scaled to the
 // leader, so the separate "Agent Comparison" chart and the donut (which
 // both re-drew this same ranking) are gone.
+/* ---------- Upcoming leave (VL / CH in the next few weeks) ---------- */
+function renderUpcomingLeave() {
+  const mount = document.getElementById('upcoming-leave-mount');
+  if (!mount) return;
+  const isManager = state.identity.role === 'manager';
+  const me = isManager ? null : matchAgentName();
+  if (!isManager && !me) { mount.innerHTML = ''; return; }
+  const today = todayISO();
+  const end = todayCalendar(); end.setUTCDate(end.getUTCDate() + CONFIG.UPCOMING_LEAVE_DAYS);
+  const endIso = isoFromCalendar(end);
+  const rows = state.claims.filter((c) => c.excused && c.date >= today && c.date <= endIso && (isManager || c.agent === me));
+  if (!rows.length) { mount.innerHTML = ''; return; }
+  const byDate = new Map();
+  rows.forEach((c) => {
+    if (!byDate.has(c.date)) byDate.set(c.date, []);
+    const list = byDate.get(c.date);
+    if (!list.some((x) => x.agent === c.agent)) list.push(c);
+  });
+  const rosterSize = state.agents.length;
+  const items = [...byDate.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, list]) => {
+    const { dow, date: dLabel } = fmtDayParts(date);
+    const allCh = isManager && list.length >= rosterSize && list.every((c) => c.excused === 'CH');
+    const names = allCh
+      ? `${excusedPillHtml('CH')} <span>Everyone</span>`
+      : list.sort((a, b) => a.agent.localeCompare(b.agent))
+          .map((c) => `<span>${excusedPillHtml(c.excused)} ${isManager ? escHtml(firstNameOf(c.agent)) : EXCUSED_CODES[c.excused]}</span>`).join('');
+    return `<li><span class="ml-date"><span class="dc-dow">${dow}</span>${dLabel}</span><span class="mini-names">${names}</span></li>`;
+  }).join('');
+  mount.innerHTML = `
+    <div class="glass card">
+      <div class="lb-head"><h3>Upcoming leave</h3><span>Next ${CONFIG.UPCOMING_LEAVE_DAYS} days</span></div>
+      <ul class="mini-list">${items}</ul>
+    </div>`;
+}
+
+/* ---------- Late edits (manager only) ---------- */
+function zoneIsoOf(dateObj) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: APP_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(dateObj);
+}
+function daysBetweenIso(a, b) {
+  return Math.round((isoToUtcDate(b) - isoToUtcDate(a)) / 86400000);
+}
+function findLateEdits() {
+  const since = todayCalendar(); since.setUTCDate(since.getUTCDate() - 45);
+  const sinceIso = isoFromCalendar(since);
+  return state.claims
+    .filter((c) => c.loggedAt instanceof Date && (c.logged || c.excused) && /^\d{4}-\d{2}-\d{2}$/.test(c.date))
+    .map((c) => ({ c, editedIso: zoneIsoOf(c.loggedAt) }))
+    .filter(({ c, editedIso }) => editedIso >= sinceIso && daysBetweenIso(c.date, editedIso) > CONFIG.LATE_EDIT_DAYS)
+    .sort((a, b) => b.c.loggedAt - a.c.loggedAt);
+}
+function renderLateEdits() {
+  const mount = document.getElementById('late-edits-mount');
+  if (!mount) return;
+  if (state.identity.role !== 'manager') { mount.innerHTML = ''; return; }
+  const edits = findLateEdits();
+  if (!edits.length) { mount.innerHTML = ''; return; }
+  const valueOf = (c) => (c.excused ? excusedPillHtml(c.excused) : c.absent ? '<span class="abs-pill">ABS</span>' : `<span class="mono">${fmtNum(c.claims)}</span>`);
+  const items = edits.slice(0, 8).map(({ c, editedIso }) => `
+    <li>
+      <div class="ml-main">
+        <p>${escHtml(firstNameOf(c.agent))} · ${escHtml(fmtAxisDate(c.date))} → ${valueOf(c)}</p>
+        <p class="ml-sub">Saved ${escHtml(fmtLoggedAt(c.loggedAt))}${c.updatedBy ? ' by ' + escHtml(c.updatedBy) : ''} · ${daysBetweenIso(c.date, editedIso)} days later</p>
+      </div>
+    </li>`).join('');
+  mount.innerHTML = `
+    <div class="glass card">
+      <div class="lb-head"><h3>Late edits</h3><span>Last 45 days</span></div>
+      <ul class="mini-list">${items}</ul>
+      <p class="card-note">Entries saved more than ${CONFIG.LATE_EDIT_DAYS} days after their date${edits.length > 8 ? ` · showing 8 of ${edits.length}` : ''}.</p>
+    </div>`;
+}
+
+/* ---------- Month-end summary (printable / Save as PDF) ---------- */
+function monthSummaryHtml(year, month) {
+  const isManager = state.identity.role === 'manager';
+  const me = isManager ? null : matchAgentName();
+  const { filteredClaims, filteredAttendance } = applyFilters(state.claims, state.attendance, { year, month, agent: 'all' });
+  const agents = isManager ? state.agents : (me ? [me] : []);
+  const rows = computeAgentSummaries(filteredClaims, filteredAttendance, agents);
+  const label = `${MONTH_NAMES[month - 1]} ${year}`;
+  const esc = escHtml;
+  const body = rows.map((s) => `
+    <tr>
+      <td>${esc(s.agent)}</td>
+      <td class="n">${s.countedDays}</td><td class="n">${s.absDays}</td><td class="n">${s.vlDays}</td><td class="n">${s.chDays}</td>
+      <td class="n">${fmtNum(s.mtdClaims)}</td><td class="n b">${fmtNum(s.avgClaimsPerDay, 1)}</td>
+      <td class="n">${s.countedDays ? s.kpi.tierLabel : '—'}</td><td class="n">${fmtPct(s.attendancePct)}</td>
+    </tr>`).join('');
+  const tot = rows.reduce((t, s) => ({ days: t.days + s.countedDays, abs: t.abs + s.absDays, vl: t.vl + s.vlDays, ch: t.ch + s.chDays, claims: t.claims + s.mtdClaims }), { days: 0, abs: 0, vl: 0, ch: 0, claims: 0 });
+  const foot = isManager && rows.length > 1 ? `
+    <tfoot><tr><td>Team</td><td class="n">${tot.days}</td><td class="n">${tot.abs}</td><td class="n">${tot.vl}</td><td class="n">${tot.ch}</td>
+      <td class="n">${fmtNum(tot.claims)}</td><td class="n b">${fmtNum(rows.reduce((t, s) => t + s.avgClaimsPerDay, 0) / rows.length, 1)}</td><td></td><td></td></tr></tfoot>` : '';
+  const generated = new Date().toLocaleString('en-US', { timeZone: APP_TIME_ZONE, dateStyle: 'medium', timeStyle: 'short' });
+  const dupCount = findDuplicateEntries(me).filter((g) => g[0].year === year && g[0].month === month).length;
+  const badCount = state.claims.filter((c) => c.invalid && c.year === year && c.month === month && (!me || c.agent === me)).length;
+  const warn = dupCount || badCount
+    ? `<p class="warn">Check the sheet before sharing: ${[dupCount ? `${dupCount} duplicate date${dupCount !== 1 ? 's' : ''}` : '', badCount ? `${badCount} unrecognized cell${badCount !== 1 ? 's' : ''}` : ''].filter(Boolean).join(' and ')} this month.</p>` : '';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Claims summary · ${esc(label)}</title>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #0f172a; margin: 2rem; font-size: 13px; }
+  h1 { font-size: 1.35rem; margin: 0 0 .2rem; }
+  .meta { color: #64748b; margin: 0 0 1.2rem; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { padding: .45rem .6rem; border-bottom: 1px solid #e2e8f0; text-align: left; }
+  th { font-size: .75rem; color: #64748b; font-weight: 600; border-bottom: 1.5px solid #cbd5e1; }
+  .n { text-align: right; font-variant-numeric: tabular-nums; }
+  .b { font-weight: 700; }
+  tfoot td { font-weight: 700; border-top: 1.5px solid #cbd5e1; border-bottom: 0; }
+  .note { color: #64748b; font-size: .75rem; margin-top: 1rem; line-height: 1.5; }
+  .warn { color: #b45309; font-weight: 600; }
+  .bar { margin-bottom: 1.2rem; } .bar button { font: inherit; padding: .45rem .9rem; border-radius: .5rem; border: 1px solid #cbd5e1; background: #fff; cursor: pointer; }
+  @media print { .bar { display: none; } body { margin: 0; } }
+</style></head><body>
+  <div class="bar"><button onclick="window.print()">Print or save as PDF</button></div>
+  <h1>Claims summary · ${esc(label)}</h1>
+  <p class="meta">Generated ${esc(generated)} (${esc(APP_TIME_ZONE)})</p>
+  ${warn}
+  <table>
+    <thead><tr><th>Agent</th><th class="n">Work days</th><th class="n">ABS</th><th class="n">VL</th><th class="n">CH</th><th class="n">Total claims</th><th class="n">Avg / day</th><th class="n">KPI tier</th><th class="n">Attendance</th></tr></thead>
+    <tbody>${body || '<tr><td colspan="9">No data for this month.</td></tr>'}</tbody>${foot}
+  </table>
+  <p class="note">Avg / day = total claims ÷ work days. The team figure is the average of each agent's Avg / day, the same as the dashboard. Work days include ABS (logged as 0). VL (planned / vacation leave) and CH (client holiday) are excluded.</p>
+</body></html>`;
+}
+function wireMonthSummaryButton(filters) {
+  const btn = document.getElementById('month-summary-btn');
+  if (!btn) return;
+  const single = filters.month !== 'all';
+  btn.innerHTML = `${ICONS.download}Month summary`;
+  btn.disabled = !single;
+  btn.title = single ? `Printable summary for ${MONTH_NAMES[filters.month - 1]} ${filters.year}` : 'Pick a single month first';
+  btn.onclick = () => {
+    if (filters.month === 'all') return;
+    const html = monthSummaryHtml(filters.year, filters.month);
+    const win = window.open('', '_blank');
+    if (win) { win.document.open(); win.document.write(html); win.document.close(); return; }
+    // Pop-up blocked: download the page instead, it prints the same way.
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = `claims-summary-${filters.year}-${String(filters.month).padStart(2, '0')}.html`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  };
+}
+
 function renderLeaderboard(summaries, mountId, filters) {
   const mount = document.getElementById(mountId);
-  const max = summaries.reduce((m, s) => Math.max(m, s.mtdClaims), 0);
+  const max = summaries.reduce((m, s) => Math.max(m, s.avgClaimsPerDay), 0);
   const focus = filters && filters.agent !== 'all' ? filters.agent : null;
   const rows = summaries.map((s) => {
     const isMe = state.identity && s.agent.trim().toLowerCase() === (state.identity.name || '').trim().toLowerCase();
     const highlight = isMe || s.agent === focus;
     const photo = isMe ? state.identity.picture : null;
     const rankClass = s.rank <= 3 ? 'rank-' + s.rank : '';
-    const pct = max ? (s.mtdClaims / max) * 100 : 0;
+    const pct = max ? (s.avgClaimsPerDay / max) * 100 : 0;
     return `
       <div class="lb-row ${highlight ? 'me' : ''}">
         <div class="rank-badge ${rankClass}" aria-label="Rank ${s.rank}">${s.rank}</div>
         <div class="lb-avatar" aria-hidden="true">${avatarHtml(s.agent, photo)}</div>
         <div class="lb-name">
           <p>${escHtml(s.agent)} ${isMe ? '<span style="color:rgb(var(--primary));">(you)</span>' : ''}</p>
-          <span>Avg ${fmtNum(s.avgClaimsPerDay, 1)} / day</span>
+          <span>${fmtNum(s.mtdClaims)} claims · ${s.countedDays} work day${s.countedDays !== 1 ? 's' : ''}</span>
           <div class="lb-bar" aria-hidden="true"><span style="width:${pct.toFixed(1)}%"></span></div>
         </div>
-        <div class="lb-stats"><p class="val mono">${fmtNum(s.mtdClaims)}</p><p class="tier">${s.kpi.tierLabel}</p></div>
+        <div class="lb-stats"><p class="val mono" title="Avg claims / day">${fmtNum(s.avgClaimsPerDay, 1)}</p><p class="tier">${s.kpi.tierLabel}</p></div>
       </div>`;
   }).join('');
   mount.innerHTML = `
-    <div class="lb-head"><h3>Leaderboard</h3><span>${filters ? escHtml(periodLabelOf(filters).replace(/^all of /, '')) + ' · ' : ''}by claims</span></div>
+    <div class="lb-head"><h3>Leaderboard</h3><span>${filters ? escHtml(periodLabelOf(filters).replace(/^all of /, '')) + ' · ' : ''}by avg claims / day</span></div>
     ${rows || '<div class="empty-state">No claims logged for this period yet.</div>'}
   `;
 }
