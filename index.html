@@ -28,6 +28,8 @@
     --accent: 5 150 105;        /* muted emerald, used sparingly for positive signal */
     --warm: 217 119 6;          /* muted amber, used sparingly for attention */
     --muted: 100 116 139;       /* slate-500 */
+    --leave: 124 58 237;        /* violet, VL (planned / vacation leave) */
+    --holiday: 8 145 178;       /* cyan, CH (client holiday) */
     --glass-bg: 255 255 255;
     --glass-alpha: 0.72;
     --glass-border-alpha: 0.5;
@@ -45,6 +47,8 @@
     --accent: 52 191 143;
     --warm: 235 158 52;
     --muted: 140 152 172;
+    --leave: 167 139 250;
+    --holiday: 34 211 238;
     --glass-bg: 22 27 40;
     --glass-alpha: 0.6;
     --glass-border-alpha: 0.16;
@@ -499,6 +503,8 @@
   .abs-pill { display: inline-block; font-size: .68rem; font-weight: 700; letter-spacing: .02em; padding: .1rem .45rem; border-radius: 999px; background: rgb(var(--warm) / .14); color: rgb(var(--warm)); }
   .not-logged { color: rgb(var(--muted)); font-style: italic; font-size: .76rem; }
   .excused-pill { display: inline-block; font-size: .68rem; font-weight: 700; letter-spacing: .02em; padding: .1rem .45rem; border-radius: 999px; background: rgb(var(--muted) / .14); color: rgb(var(--muted)); }
+  .excused-pill.vl { background: rgb(var(--leave) / .14); color: rgb(var(--leave)); }
+  .excused-pill.ch { background: rgb(var(--holiday) / .14); color: rgb(var(--holiday)); }
   .invalid-pill { display: inline-block; font-size: .68rem; font-weight: 700; padding: .1rem .45rem; border-radius: 999px; border: 1px dashed rgb(var(--warm)); color: rgb(var(--warm)); max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
   .best-key { display: inline-flex; align-items: center; gap: .35rem; }
   .best-key i { width: .7rem; height: .7rem; border-radius: .2rem; background: rgb(var(--accent) / .3); display: inline-block; }
@@ -2705,7 +2711,7 @@ function claimsTableRows(rows, { newestFirst = false } = {}) {
   return { bodyHtml, headHtml, cols: showLoggedAt ? 3 : 2, loggedCount: logged.length, vlCount, chCount, total, hasBest: best > 0 };
 }
 function excusedPillHtml(code) {
-  return `<span class="excused-pill" title="${EXCUSED_CODES[code]}, not counted in Avg Claims / Day">${code}</span>`;
+  return `<span class="excused-pill ${code.toLowerCase()}" title="${EXCUSED_CODES[code]}, not counted in Avg Claims / Day">${code}</span>`;
 }
 function invalidPillHtml(raw) {
   return `<span class="invalid-pill" title="Not recognized. Use a number, 0 for ABS, VL or CH.">"${escHtml(raw)}"?</span>`;
@@ -2852,7 +2858,7 @@ function renderMonthlyGrid(filters) {
       <div class="dc-head">
         <h3>Monthly View — ${monthLabel}</h3>
         <div style="display:flex; align-items:center; gap:.75rem; flex-wrap:wrap;">
-          <span>— not logged · <span class="abs-pill">ABS</span> absent · <span class="excused-pill">VL</span> leave · <span class="excused-pill">CH</span> client holiday</span>
+          <span>— not logged · <span class="abs-pill">ABS</span> absent · <span class="excused-pill vl">VL</span> leave · <span class="excused-pill ch">CH</span> client holiday</span>
           <label style="display:flex; align-items:center; gap:.4rem; font-size:.76rem; color:rgb(var(--muted)); cursor:pointer; text-transform:none; letter-spacing:0;">
             <input type="checkbox" id="mgrid-heat-toggle" ${heatOn ? 'checked' : ''} style="width:auto; margin:0;"> Heat map
           </label>
