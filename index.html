@@ -263,6 +263,7 @@
 
   /* ============ GOAL PROGRESS ============ */
   .goal-row { display: grid; grid-template-columns: 1fr; gap: 1.1rem; }
+  #goal-progress-mount > .card, #attendance-goal-mount > .card { height: 100%; }
   @media (min-width: 1024px) { .goal-row { grid-template-columns: 1fr 1fr; } }
   .goal-card { display: flex; flex-direction: column; align-items: center; gap: 1rem; background: linear-gradient(135deg, rgb(var(--primary) / .04), rgb(var(--primary) / .01)); }
   @media (min-width: 640px) { .goal-card { flex-direction: row; justify-content: space-between; } }
@@ -321,7 +322,9 @@
   .lb-avatar img { width: 100%; height: 100%; object-fit: cover; }
   .lb-name { flex: 1; min-width: 0; }
   .lb-name p { margin: 0; font-size: .84rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .lb-name span { font-size: .68rem; color: rgb(var(--muted)); }
+  .lb-name span { font-size: .68rem; color: rgb(var(--muted)); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lb-stats { flex-shrink: 0; }
+  .lb-head { flex-wrap: wrap; gap: .25rem .75rem; }
   .lb-stats { text-align: right; }
   .lb-stats .val { margin: 0; font-size: .92rem; font-weight: 700; }
   .lb-stats .tier { font-size: .68rem; color: rgb(var(--muted)); }
@@ -351,6 +354,9 @@
   table.dc-table thead th.num, table.dc-table tbody td.num { text-align: right; }
   .dc-logged-at { font-size: .72rem; color: rgb(var(--muted)); white-space: nowrap; }
   table.dc-table tbody td { padding: .5rem .8rem; border-bottom: 1px solid rgb(var(--border) / .5); }
+  /* Keep "Thu Sep 10" and the Logged-at time on one line on narrow screens */
+  table.dc-table tbody td:first-child, table.dc-table td.dc-logged-at { white-space: nowrap; }
+  @media (max-width: 480px) { table.dc-table tbody td, table.dc-table thead th { padding-left: .5rem; padding-right: .5rem; } }
   table.dc-table tbody tr { transition: background .12s ease; }
   table.dc-table tbody tr:nth-child(even) { background: rgb(var(--ink) / .02); }
   table.dc-table tbody tr:hover { background: rgb(var(--ink) / .045); }
@@ -585,6 +591,22 @@
   /* Header: right cluster pinned right; compact sync status below 1180px */
   .topnav-right { margin-left: auto; }
   @media (min-width: 1180px) { .topnav-right { margin-left: 0; } }
+  /* Header never wider than the screen: nav labels stay on one line, a long
+     name is cut with "…", and between 1024px and 1339px (tabs + status all
+     showing) only the avatar is shown; the full name is on the Profile page. */
+  .topnav .nav-item { white-space: nowrap; }
+  .user-chip .who { min-width: 0; max-width: 11rem; }
+  .user-chip .who .name, .user-chip .who .email { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @media (min-width: 1024px) and (max-width: 1339px) { .user-chip .who { display: none; } }
+  @media (max-width: 400px) {
+    .topnav { padding: .5rem .6rem; }
+    .topnav-inner { gap: .4rem; }
+    .brand-logo { height: 1.5rem; }
+    .topnav-right { gap: .25rem; }
+    .sync-pill { padding: .35rem .45rem; }
+    .topnav .icon-btn { width: 2.1rem; height: 2.1rem; }
+    .topnav .user-chip { padding: .2rem; gap: .3rem; }
+  }
   .sync-pill { display: flex; align-items: center; gap: .4rem; background: rgba(255,255,255,.1); color: #fff; border-radius: .7rem; padding: .4rem .6rem; font-size: .72rem; font-weight: 600; white-space: nowrap; }
   .sync-pill i { width: .45rem; height: .45rem; border-radius: 999px; background: #34D399; display: inline-block; }
   .sync-pill.is-stale { background: rgba(245, 158, 11, .22); color: #FCD34D; }
@@ -1136,7 +1158,11 @@ function attendanceTargetFor(name) {
 // zero out a real streak just because the day isn't over yet.
 function computeKpiStreak(claims, agentName, maxLookback = 60) {
   const claimsByDate = new Map();
-  claims.filter((c) => c.agent === agentName).forEach((c) => claimsByDate.set(c.date, c.claims));
+  const skipDates = new Set(); // VL / CH: not a work day, so it neither counts nor breaks the streak
+  claims.filter((c) => c.agent === agentName).forEach((c) => {
+    if (c.logged) claimsByDate.set(c.date, (claimsByDate.get(c.date) || 0) + c.claims);
+    else if (c.excused) skipDates.add(c.date);
+  });
   const threshold = getTiersForAgent(agentName).find((t) => t.level === 4).min;
   const meetsThreshold = (iso) => { const v = claimsByDate.get(iso); return v !== undefined && v >= threshold; };
 
@@ -1151,8 +1177,10 @@ function computeKpiStreak(claims, agentName, maxLookback = 60) {
     const dow = cursor.getUTCDay();
     if (dow !== 0 && dow !== 6) {
       const iso = isoFromCalendar(cursor);
-      if (!meetsThreshold(iso)) break;
-      streak++;
+      if (!(skipDates.has(iso) && !claimsByDate.has(iso)) && !(isFederalHoliday(iso) && !claimsByDate.has(iso))) {
+        if (!meetsThreshold(iso)) break;
+        streak++;
+      }
     }
     cursor.setUTCDate(cursor.getUTCDate() - 1);
   }
@@ -1640,6 +1668,9 @@ function parseClaimsCell(rawCell) {
 }
 // "Handled" = the day needs no reminder: logged, or marked VL / CH.
 function isHandledEntry(c) { return c.logged || !!c.excused; }
+// For the "missing days" reminder only: an unrecognized cell already has its
+// own banner, so it isn't reported a second time as missing.
+function isRemindedEntry(c) { return isHandledEntry(c) || !!c.invalid; }
 
 async function fetchClaims() {
   const text = await fetchSheetText(CONFIG.CLAIMS_SHEET_NAME, 'Claims');
@@ -1896,7 +1927,7 @@ function computeMissingWorkdays(claims, agentName, maxLookback = 14, loggedIndex
   // so the claims list is walked once rather than once per agent.
   const loggedDates = loggedIndex
     ? (loggedIndex.get(agentName) || new Set())
-    : new Set(claims.filter((c) => c.agent === agentName && isHandledEntry(c)).map((c) => c.date));
+    : new Set(claims.filter((c) => c.agent === agentName && isRemindedEntry(c)).map((c) => c.date));
   const missing = [];
   const cursor = todayCalendar();
   cursor.setUTCDate(cursor.getUTCDate() - 1);
@@ -2553,7 +2584,7 @@ function wireRangeToggle(containerId, filters, rerender) {
 function loggedDatesByAgent(claims) {
   const map = new Map();
   for (const c of claims) {
-    if (!isHandledEntry(c)) continue;
+    if (!isRemindedEntry(c)) continue;
     let set = map.get(c.agent);
     if (!set) { set = new Set(); map.set(c.agent, set); }
     set.add(c.date);
@@ -3384,7 +3415,7 @@ function renderKpiCards(me, filters) {
 
   // The one number everything is scored on gets the big card: average,
   // the math behind it, the KPI tier it earns and what's left this month.
-  const projection = filters && filters.month !== 'all' ? computeMonthProjection(state.claims, me, filters.year, filters.month) : null;
+  const projection = filters && filters.month !== 'all' && !filters.dateFrom && !filters.dateTo ? computeMonthProjection(state.claims, me, filters.year, filters.month) : null;
   const heroHtml = `
     <div class="kpi-top">
       <p class="kpi-label">Avg Claims / Day · KPI tier</p>
@@ -3486,6 +3517,20 @@ function renderGoalProgress(me) {
   const met = gp.remaining === 0;
   const canLog = state.identity.role === 'manager' || me.agent === matchAgentName();
   const loggedToday = state.claims.some((c) => c.agent === me.agent && c.date === todayISO() && c.logged);
+  const todayOff = loggedToday ? null : state.claims.find((c) => c.agent === me.agent && c.date === todayISO() && c.excused);
+  if (todayOff) {
+    mount.innerHTML = `
+      <div class="glass card goal-card">
+        <div class="goal-left">
+          <div class="goal-eyebrow">${ICONS.target}Today's goal</div>
+          <div>
+            <p class="goal-title display">No goal today</p>
+            <p class="goal-detail">Today is marked ${excusedPillHtml(todayOff.excused)} ${EXCUSED_CODES[todayOff.excused].toLowerCase()}, so it isn't counted.</p>
+          </div>
+        </div>
+      </div>`;
+    return;
+  }
   mount.innerHTML = `
     <div class="glass card goal-card">
       <div class="goal-left">
@@ -3712,7 +3757,7 @@ function renderLeaderboard(summaries, mountId, filters) {
         <div class="lb-avatar" aria-hidden="true">${avatarHtml(s.agent, photo)}</div>
         <div class="lb-name">
           <p>${escHtml(s.agent)} ${isMe ? '<span style="color:rgb(var(--primary));">(you)</span>' : ''}</p>
-          <span>${fmtNum(s.mtdClaims)} claims · ${s.countedDays} work day${s.countedDays !== 1 ? 's' : ''}</span>
+          <span title="${fmtNum(s.mtdClaims)} claims over ${s.countedDays} work day${s.countedDays !== 1 ? 's' : ''}">${fmtNum(s.mtdClaims)} claims · ${s.countedDays} day${s.countedDays !== 1 ? 's' : ''}</span>
           <div class="lb-bar" aria-hidden="true"><span style="width:${pct.toFixed(1)}%"></span></div>
         </div>
         <div class="lb-stats"><p class="val mono" title="Avg claims / day">${fmtNum(s.avgClaimsPerDay, 1)}</p>${tierChipHtml(s.kpi, !s.countedDays)}</div>
@@ -4175,7 +4220,12 @@ function renderLogClaims() {
 
     const existing = state.claims.find((c) => c.agent === agent && c.date === dateStr);
     note.style.color = cssVarColor('--muted');
-    if (existing && existing.excused) {
+    if (existing && existing.invalid) {
+      absentInput.checked = false;
+      claimsInput.value = '';
+      note.textContent = `The sheet has "${existing.invalid}" for this date, which isn't a valid entry. Saving will replace it.`;
+      note.style.color = cssVarColor('--warm');
+    } else if (existing && existing.excused) {
       absentInput.checked = false;
       claimsInput.value = '';
       note.textContent = `Currently marked as ${existing.excused} (${EXCUSED_CODES[existing.excused].toLowerCase()}). Saving will replace it.`;
