@@ -8,7 +8,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
@@ -721,6 +721,200 @@
     .login-main-foot { padding: 0 1.25rem 1.5rem; }
   }
   @media (prefers-reduced-motion: reduce) { #login-card { animation: none; } }
+
+  /* =====================================================================
+     REDESIGN LAYER — enterprise shell (left sidebar, one filter bar),
+     flat white panels with hairline borders, IBM Plex Sans, color only
+     where it means something. Placed last so it wins over older rules.
+     ===================================================================== */
+  :root {
+    --ink: 15 27 45; --canvas: 244 246 249; --surface: 255 255 255; --border: 227 232 239;
+    --primary: 31 95 214; --primary-deep: 23 74 168; --accent: 15 122 90; --warm: 180 83 9; --muted: 91 103 120;
+    --side-bg: #0B1B3F; --side-active: #16295A; --side-text: #C9D3E6; --side-dim: #8494B3; --side-line: #1E3263;
+    --side-w: 240px;
+  }
+  :root[data-theme="dark"] {
+    --ink: 232 237 245; --canvas: 10 15 27; --surface: 18 25 41; --border: 38 49 72;
+    --primary: 110 155 255; --primary-deep: 82 130 245; --accent: 52 191 143; --warm: 240 165 60; --muted: 150 162 184;
+    --side-bg: #070F24; --side-active: #13244D; --side-line: #172a55;
+  }
+  body, h1, h2, h3, .display, .mono, button, input, select, textarea { font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, -apple-system, sans-serif; }
+  .mono, .kpi-value, .num, td.num, .lb-stats .val { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+
+  /* Panels */
+  .glass { background: rgb(var(--surface)); border: 1px solid rgb(var(--border)); box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .card { border-radius: 12px; padding: 1.25rem; animation-duration: .25s; }
+  .glass-hover:hover { transform: none; box-shadow: none; border-color: rgb(var(--border)); }
+  .chart-title, .lb-head h3, .dc-head h3 { font-size: 1rem; font-weight: 600; letter-spacing: 0; }
+
+  /* Buttons and fields */
+  .btn { border-radius: 8px; height: 2.5rem; font-weight: 600; font-size: .875rem; }
+  .btn-sm { height: 2.25rem; }
+  .btn-primary { background: rgb(var(--primary)); box-shadow: none; }
+  .btn-primary:hover { background: rgb(var(--primary-deep)); filter: none; transform: none; }
+  .btn-glass { border: 1px solid rgb(var(--border)); background: rgb(var(--surface)); }
+  .field label { font-size: .75rem; font-weight: 500; color: rgb(var(--muted)); text-transform: none; letter-spacing: 0; }
+  .field select, .field input, .filters-bar select, .filters-bar input { border-radius: 8px; height: 2.5rem; border: 1px solid rgb(var(--border)); background: rgb(var(--surface)); }
+  .month-nav-btn, .month-label-btn { border-radius: 8px; height: 2.5rem; }
+  .seg { border-radius: 8px; padding: 3px; background: rgb(var(--ink) / .05); border: none; }
+  .seg button { border-radius: 6px; }
+  .seg button[aria-selected="true"], .seg button[aria-pressed="true"] { background: rgb(var(--surface)); color: rgb(var(--ink)); box-shadow: 0 1px 2px rgb(var(--ink) / .14); }
+  .seg-source button { height: 2.1rem; padding: 0 .9rem; }
+  .source-field .seg { height: 2.5rem; align-items: stretch; }
+
+  /* Page head: title, scope line, actions, then the one filter bar */
+  .page-head { display: flex; flex-direction: column; gap: .9rem; background: rgb(var(--surface)); border-bottom: 1px solid rgb(var(--border)); padding: 1rem; }
+  .page-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+  .page-title h1 { margin: 0; font-size: 1.35rem; font-weight: 700; letter-spacing: -.01em; }
+  .page-title p { margin: .2rem 0 0; font-size: .82rem; color: rgb(var(--muted)); }
+  .page-actions { display: flex; gap: .5rem; align-items: center; }
+  .page-head .filters-bar { padding: 0; border: 0; background: none; box-shadow: none; align-items: flex-end; gap: .75rem; }
+  .page-head .filters-actions { margin-left: auto; }
+  .info-banner { display: flex; gap: .6rem; align-items: center; padding: .75rem 1rem; border-radius: 10px; font-size: .82rem; background: rgb(var(--primary) / .07); border: 1px solid rgb(var(--primary) / .2); margin-bottom: 1.1rem; }
+  .info-banner svg { width: 1rem; height: 1rem; color: rgb(var(--primary)); flex-shrink: 0; }
+  main { max-width: none; padding: 0 0 5rem; gap: 1.1rem; }
+  main > :not(.page-head) { margin-left: 1rem; margin-right: 1rem; }
+  @media (min-width: 640px) { main > :not(.page-head) { margin-left: 1.5rem; margin-right: 1.5rem; } .page-head { padding: 1rem 1.5rem; } }
+
+  /* Notices and small components */
+  .notice-banner, .issues-panel { border-radius: 10px; }
+  .kpi-hero { background: rgb(var(--surface)); border-color: rgb(var(--border)); }
+  .kpi-hero .hero-value { font-size: 3rem; }
+  .goal-card { background: rgb(var(--surface)); }
+  .rank-badge { box-shadow: none !important; }
+  .rank-1 { background: rgb(var(--primary)); color: #fff; }
+  .rank-2, .rank-3 { background: rgb(var(--ink) / .08); color: rgb(var(--ink)); }
+  .lb-row.me { background: rgb(var(--primary) / .06); border-color: rgb(var(--primary) / .18); }
+
+  /* Phones and tablets: compact top bar + a real bottom bar */
+  .mobile-nav { left: 0; right: 0; bottom: 0; transform: none; border-radius: 0; justify-content: space-around; background: rgb(var(--surface)); border: 0; border-top: 1px solid rgb(var(--border)); box-shadow: none; padding: .35rem .5rem calc(.35rem + env(safe-area-inset-bottom, 0px)); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .mobile-nav .nav-item { font-size: .72rem; padding: .45rem .75rem; color: rgb(var(--muted)); background: none; }
+  .mobile-nav .nav-item.active { color: rgb(var(--primary)); background: none; }
+  .topnav { background: var(--side-bg); box-shadow: none; }
+  .nav-group { display: none; }
+  .side-health { display: none; }
+
+  /* Desktop: the navigation becomes a fixed left sidebar */
+  @media (min-width: 1024px) {
+    .topnav { position: fixed; top: 0; bottom: 0; left: 0; width: var(--side-w); padding: 1.25rem .85rem 1rem; overflow-y: auto; z-index: 60; }
+    .topnav-inner { flex-direction: column; align-items: stretch; height: 100%; gap: 1.25rem; max-width: none; }
+    .topnav .brand { padding: .25rem .5rem .5rem; }
+    .brand-logo { height: 2.1rem; }
+    .topnav .nav { display: flex; flex-direction: column; gap: 2px; background: none; padding: 0; margin: 0; border-radius: 0; }
+    .nav-group { display: block; margin: .9rem .65rem .3rem; font-size: .72rem; font-weight: 500; color: var(--side-dim); }
+    .nav-group:first-child { margin-top: 0; }
+    .topnav .nav-item { color: var(--side-text); padding: .6rem .65rem; border-radius: 8px; font-size: .875rem; gap: .65rem; }
+    .topnav .nav-item svg { width: 1.05rem; height: 1.05rem; }
+    .topnav .nav-item:hover { background: rgba(255,255,255,.06); color: #fff; }
+    .topnav .nav-item.active { background: var(--side-active); color: #fff; font-weight: 600; }
+    .side-health { display: flex; align-items: center; gap: .55rem; margin-top: auto; padding: .6rem .65rem; border-radius: 8px; border: 0; background: rgba(245,158,11,.12); color: #FCD9A8; font: inherit; font-size: .8rem; text-align: left; cursor: pointer; }
+    .side-health[hidden] { display: none; }
+    .side-health i { width: .5rem; height: .5rem; border-radius: 99px; background: #F59E0B; flex-shrink: 0; }
+    .status-chips { display: flex; flex-direction: column; align-items: stretch; gap: .35rem; margin: 0; }
+    .side-health:not([hidden]) + .status-chips { margin-top: 0; }
+    .side-health[hidden] + .status-chips { margin-top: auto; }
+    .status-chip { flex-direction: row; justify-content: space-between; align-items: baseline; background: none; padding: .15rem .65rem; border: 0; }
+    .status-chip-label { font-size: .75rem; color: var(--side-dim); font-weight: 500; text-transform: none; letter-spacing: 0; }
+    .status-chip-value { font-size: .78rem; color: var(--side-text); }
+    .topnav-right { margin: 0; padding-top: .85rem; border-top: 1px solid var(--side-line); gap: .5rem; }
+    .sync-pill { display: none; }
+    .topnav .user-chip { flex: 1; min-width: 0; background: none; padding: 0; }
+    .user-chip .who { display: block !important; max-width: none; flex: 1; min-width: 0; }
+    .topnav .user-chip .name { color: #fff; font-size: .82rem; }
+    .topnav .icon-btn { background: var(--side-active); color: var(--side-text); width: 2rem; height: 2rem; border-radius: 8px; flex-shrink: 0; }
+    .shell { margin-left: var(--side-w); }
+    .page-head { position: sticky; top: 0; z-index: 30; padding: 1.1rem 2rem; }
+    main > :not(.page-head) { margin-left: 2rem; margin-right: 2rem; }
+    main { padding-bottom: 2.5rem; }
+    .dash-tabs-row { display: none; }
+  }
+
+  /* With the sidebar taking 240px, the right column needs a real minimum
+     width or the leaderboard names and stats collide. */
+  @media (min-width: 1280px) { .two-col { grid-template-columns: minmax(0, 1fr) minmax(340px, 32%); } }
+  .dc-head { flex-wrap: wrap; row-gap: .6rem; }
+
+  :root[data-theme="dark"] .btn-primary { background: rgb(47 98 224); color: #fff; }
+  :root[data-theme="dark"] .btn-primary:hover { background: rgb(38 84 200); }
+
+  /* Local preview (file opened from disk): sample data, no sign-in */
+  .preview-panel { margin-top: 1.5rem; padding: 1rem; border: 1px solid rgb(var(--border)); border-radius: 10px; background: rgb(var(--canvas)); display: flex; flex-direction: column; gap: .6rem; }
+  .preview-title { margin: 0; font-weight: 700; font-size: .95rem; }
+  .preview-text { margin: 0; font-size: .82rem; color: rgb(var(--muted)); line-height: 1.5; }
+  .preview-actions { display: flex; flex-direction: column; gap: .75rem; }
+  .preview-agent { display: flex; flex-direction: column; gap: .3rem; }
+  .preview-agent label { font-size: .75rem; color: rgb(var(--muted)); }
+  .preview-agent-row { display: flex; gap: .5rem; }
+  .preview-agent-row select { flex: 1; min-width: 0; height: 2.5rem; border-radius: 8px; border: 1px solid rgb(var(--border)); background: rgb(var(--surface)); color: rgb(var(--ink)); padding: 0 .6rem; font: inherit; font-size: .875rem; }
+  .preview-banner { font-size: .8rem; font-weight: 600; padding: .5rem .75rem; border-radius: 8px; background: rgb(var(--leave) / .1); color: rgb(var(--leave)); border: 1px solid rgb(var(--leave) / .25); }
+
+  /* Daily entries tables: title and summary on the left, month controls on
+     the right; Date and Claims keep fixed widths so the numbers sit next to
+     their dates instead of drifting to the middle of a wide card. */
+  .dc-title { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
+  .dc-title span { font-size: .75rem; color: rgb(var(--muted)); }
+  .dc-head { align-items: flex-end; margin-bottom: .9rem; }
+  table.claims-table th:first-child, table.claims-table td:first-child { width: 10rem; }
+  table.claims-table th:nth-child(2), table.claims-table td:nth-child(2) { width: 6rem; text-align: right; }
+  table.claims-table th:nth-child(3), table.claims-table td:nth-child(3) { padding-left: 2rem; }
+  .log-layout { gap: 1.25rem; }
+  /* Side by side only when there's real room: 860-1023px (no sidebar yet)
+     and from 1280px (sidebar + enough content width); stacked in between. */
+  @media (min-width: 860px) { .log-layout { grid-template-columns: minmax(18rem, 24rem) minmax(0, 1fr); } }
+  @media (min-width: 1024px) and (max-width: 1279px) { .log-layout { grid-template-columns: 1fr; } }
+
+  /* Log page: form | entries | month at a glance */
+  .log-side { display: flex; flex-direction: column; gap: 1.1rem; min-width: 0; }
+  .log-side:empty { display: none; }
+  .side-card { display: flex; flex-direction: column; gap: .6rem; }
+  .side-card .lb-head { margin-bottom: .1rem; }
+  .side-hero { display: flex; align-items: center; gap: .6rem; }
+  .side-avg { font-size: 2.4rem; font-weight: 700; line-height: 1; letter-spacing: -.02em; }
+  .side-sub { margin: 0; font-size: .76rem; color: rgb(var(--muted)); }
+  .side-next { margin: .2rem 0 0; font-size: .8rem; font-weight: 600; }
+  .side-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; margin-top: .35rem; padding-top: .75rem; border-top: 1px solid rgb(var(--border)); }
+  .side-stats div { display: flex; flex-direction: column; gap: .1rem; }
+  .side-stats span { font-size: 1.1rem; font-weight: 700; }
+  .side-stats small { font-size: .72rem; color: rgb(var(--muted)); }
+  .side-empty { margin: 0; font-size: .8rem; color: rgb(var(--muted)); }
+  .day-strip { position: relative; display: flex; align-items: flex-end; gap: 3px; height: 7.5rem; padding-top: .5rem; border-bottom: 1px solid rgb(var(--border)); }
+  .ds-bar { flex: 1 1 0; min-width: 4px; border-radius: 3px 3px 0 0; background: rgb(var(--primary) / .45); }
+  .ds-hit { background: rgb(var(--primary)); }
+  .ds-under { background: rgb(var(--primary) / .35); }
+  .ds-best { background: rgb(var(--accent)); }
+  .ds-vl { background: rgb(var(--leave) / .55); }
+  .ds-ch { background: rgb(var(--holiday) / .55); }
+  .ds-abs { background: rgb(var(--warm)); }
+  .ds-missing { background: repeating-linear-gradient(45deg, rgb(var(--muted) / .35) 0 2px, transparent 2px 4px); }
+  .ds-target { position: absolute; left: 0; right: 0; border-top: 1.5px dashed rgb(var(--ink) / .35); pointer-events: none; }
+  .ds-target i { position: absolute; right: 0; top: -1.15rem; font-style: normal; font-size: .68rem; color: rgb(var(--muted)); background: rgb(var(--surface)); padding: 0 .2rem; }
+  .ds-legend { display: flex; flex-wrap: wrap; gap: .35rem .8rem; font-size: .72rem; color: rgb(var(--muted)); }
+  .ds-legend span { display: inline-flex; align-items: center; gap: .3rem; }
+  .ds-legend i { width: .6rem; height: .6rem; border-radius: 2px; display: inline-block; }
+  .log-details #log-leave-help p { margin: .5rem 0 0; }
+
+  .log-layout { grid-template-areas: "form" "entries" "side"; }
+  .log-layout > .card:first-child { grid-area: form; }
+  #log-history-mount { grid-area: entries; min-width: 0; }
+  .log-side { grid-area: side; }
+  @media (min-width: 860px) and (max-width: 1023px) {
+    .log-layout { grid-template-areas: "form entries" "side side"; }
+    .log-side { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+  }
+  @media (min-width: 1024px) and (max-width: 1279px) {
+    .log-layout { grid-template-areas: "form" "entries" "side"; }
+    .log-side { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+  }
+  @media (min-width: 1280px) {
+    .log-layout { grid-template-columns: minmax(18rem, 22rem) minmax(0, 1fr); grid-template-areas: "form entries" "side entries"; }
+  }
+  @media (min-width: 1600px) {
+    .log-layout { grid-template-columns: minmax(18rem, 22rem) minmax(0, 36rem) minmax(18rem, 1fr); grid-template-areas: "form entries side"; }
+  }
+
+  .dc-title { flex: 1 1 13rem; }
+
+  table.claims-table .not-logged { white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -768,6 +962,20 @@
         <p id="login-error" class="hidden" role="alert">
           That account isn't set up as an agent on this dashboard. Contact your manager if this seems wrong.
         </p>
+        <div id="preview-panel" class="preview-panel hidden">
+          <p class="preview-title">Preview on this computer</p>
+          <p class="preview-text">Google sign-in only works on the published site. From this file you can look around with <b>sample data</b>. Your real Google Sheet is never read or changed.</p>
+          <div class="preview-actions">
+            <button type="button" class="btn btn-primary" id="preview-manager-btn">View as manager</button>
+            <div class="preview-agent">
+              <label for="preview-agent-select">or as an agent</label>
+              <div class="preview-agent-row">
+                <select id="preview-agent-select"></select>
+                <button type="button" class="btn btn-glass" id="preview-agent-btn">Open</button>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="login-divider"></div>
         <div class="login-note">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
@@ -791,6 +999,7 @@
         <img class="brand-logo" src="data:image/webp;base64,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" alt="Takahami Billing" />
       </div>
       <nav class="nav" id="nav-desktop" aria-label="Main"></nav>
+      <button type="button" class="side-health" id="side-health" hidden></button>
       <div class="status-chips">
         <div class="status-chip">
           <span class="status-chip-label">Latest Update</span>
@@ -817,27 +1026,33 @@
 
   <div class="shell">
     <main>
-      <div class="topbar">
-        <div>
-          <h1 id="greeting">Welcome back</h1>
-          <p id="page-subtitle"></p>
+      <div class="page-head" id="page-head">
+        <div class="preview-banner hidden" id="preview-banner" role="status">Preview mode: sample data only. Nothing is read from or saved to your Google Sheet, and changes disappear when you reload.</div>
+        <div class="page-head-row">
+          <div class="page-title">
+            <h1 id="greeting">Overview</h1>
+            <p id="page-subtitle"></p>
+          </div>
+          <div class="page-actions" id="page-actions">
+            <button type="button" class="btn btn-primary btn-sm" id="month-summary-btn"></button>
+          </div>
         </div>
+        <div class="filters-bar" id="filters-bar"></div>
       </div>
 
       <div id="global-error" class="error-banner glass hidden"></div>
 
       <!-- ===== DASHBOARD VIEW ===== -->
       <div id="view-dashboard">
-        <div class="filters-bar glass card" id="filters-bar"></div>
         <div id="missing-entries-mount"></div>
         <div class="dash-tabs-row">
           <div class="seg" role="tablist" aria-label="Dashboard view" id="dash-tabs"></div>
-          <button type="button" class="btn btn-glass btn-sm" id="month-summary-btn"></button>
         </div>
         <div id="monthly-grid-mount" style="margin-top:1.1rem;"></div>
         <div id="client-report-mount" style="margin-top:1.1rem;"></div>
 
         <div id="dash-overview">
+          <div id="source-note-mount"></div>
           <div class="goal-row" id="goal-row" style="margin-top:1.1rem;">
             <div id="goal-progress-mount"></div>
             <div id="attendance-goal-mount"></div>
@@ -886,9 +1101,7 @@
             <p class="log-help">Enter the <strong>day's total</strong>. Saving replaces any number already logged for that date, so you can also use this to correct an entry.</p>
             <details class="log-details">
               <summary>Leave, holiday, or absence?</summary>
-              <p>For planned or vacation leave, type <strong>VL</strong> in the Claims cell of the sheet. For a client holiday, type <strong>CH</strong>. Both are left out of Avg Claims / Day, so they won't count against you.</p>
-              <p>Leave a day blank only if it hasn't been logged yet. Blank work days show up as missing.</p>
-              <p>Use <strong>Mark as absent (ABS)</strong> only for an <em>unplanned</em> absence. It logs a 0, which does count toward the average.</p>
+              <div id="log-leave-help"></div>
             </details>
             <div style="display:flex; flex-direction:column; gap:1rem;">
               <div class="field hidden" id="log-agent-field">
@@ -915,12 +1128,12 @@
             </div>
           </div>
           <div id="log-history-mount"></div>
+          <aside id="log-side-mount" class="log-side" aria-label="Month at a glance"></aside>
         </div>
       </div>
 
       <!-- ===== HISTORY VIEW ===== -->
       <div id="view-history" class="hidden">
-        <div class="filters-bar glass card" id="history-filters-bar"></div>
         <div class="glass card" style="margin-top:1.1rem;">
           <h3 class="chart-title">Daily Claims</h3>
           <div class="chart-wrap"><canvas id="hist-chart-claims"></canvas></div>
@@ -951,7 +1164,7 @@
         <div class="glass card" style="margin-top:1.1rem;" id="profile-claims-card">
           <div class="dc-head">
             <h3>Your Claims Entries</h3>
-            <div style="display:flex; gap:.5rem;">
+            <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
               <select id="profile-log-month" aria-label="Month" style="width:auto;"></select>
               <select id="profile-log-year" aria-label="Year" style="width:auto;"></select>
               <button class="btn btn-glass btn-sm" id="profile-log-export-btn"></button>
@@ -1464,14 +1677,14 @@ function updateStatusChips(claims) {
       pillText.innerHTML = `<span class="sp-long">${long}</span><span class="sp-short">${short}</span>`;
       pill.classList.toggle('is-stale', stale);
       pill.title = stale
-        ? `Couldn't reach the sheet on the last ${state.failedPolls} attempts. These numbers may be out of date.`
-        : 'Last successful read from Google Sheets.';
+        ? `Couldn't refresh the data on the last ${state.failedPolls} attempts. These numbers may be out of date.`
+        : 'Last successful data refresh.';
     }
     if (chip) {
       chip.classList.toggle('is-stale', stale);
       chip.title = stale
-        ? `Couldn't reach the sheet on the last ${state.failedPolls} attempts — these numbers may be out of date.`
-        : 'Last successful read from Google Sheets.';
+        ? `Couldn't refresh the data on the last ${state.failedPolls} attempts — these numbers may be out of date.`
+        : 'Last successful data refresh.';
     }
   }
 }
@@ -1557,7 +1770,123 @@ function sheetCsvUrl(sheetName) {
 // capture are consistent. The timestamp matters for the save verification
 // below: `cache: 'no-store'` alone doesn't always defeat Google's edge cache,
 // and a stale read there would report a good save as unconfirmed.
+/* ==========================================================================
+   LOCAL PREVIEW — only when this file is opened straight from disk
+   (file://). Sign-in is skipped and every sheet read/write goes to an
+   in-memory SAMPLE dataset instead of Google, so the real sheet is never
+   touched. On the published site (http/https) none of this ever runs.
+   ========================================================================== */
+const PREVIEW_MODE = location.protocol === 'file:';
+let previewStore = null;
+
+function previewRng(seed) {
+  let t = seed >>> 0;
+  return () => { t += 0x6D2B79F5; let r = Math.imul(t ^ (t >>> 15), 1 | t); r ^= r + Math.imul(r ^ (r >>> 7), 61 | r); return ((r ^ (r >>> 14)) >>> 0) / 4294967296; };
+}
+function buildPreviewStore() {
+  const rnd = previewRng(20260930);
+  const agents = AGENTS.map((a) => a.agent);
+  const now = nowInZone();
+  const todayIso = todayISO();
+  const fmtDate = (d) => `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`;
+  const stamp = (d, hour) => `${fmtDate(d)} ${String(hour).padStart(2, '0')}:00:00`;
+  const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const start = calendarDate(now.month === 1 ? now.year - 1 : now.year, now.month === 1 ? 12 : now.month - 1, 1);
+  const end = calendarDate(now.year, now.month, 1); end.setUTCMonth(end.getUTCMonth() + 2); end.setUTCDate(0); // end of next month
+  const firstMonday = (y, m) => { const d = calendarDate(y, m, 1); while (d.getUTCDay() !== 1) d.setUTCDate(d.getUTCDate() + 1); return isoFromCalendar(d); };
+  const chDates = new Set();
+  for (let k = -1; k <= 1; k++) { const d = calendarDate(now.year, now.month, 1); d.setUTCMonth(d.getUTCMonth() + k); chDates.add(firstMonday(d.getUTCFullYear(), d.getUTCMonth() + 1)); }
+  const base = new Map(agents.map((a, i) => [a, 52 + ((i * 7) % 11)]));
+  const upcomingVl = new Set();
+  const cur = todayCalendar(); let added = 0;
+  while (added < 3) { cur.setUTCDate(cur.getUTCDate() + 1); const dow = cur.getUTCDay(); if (dow !== 0 && dow !== 6) { if (added > 0) upcomingVl.add(isoFromCalendar(cur)); added++; } }
+  const prod = [['Year', 'Month', 'Day', 'Date', 'Agent', 'Claims', 'Last Updated', 'Updated By']];
+  const monthTotals = new Map();
+  for (const d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const dow = d.getUTCDay();
+    if (dow === 0 || dow === 6) continue;
+    const iso = isoFromCalendar(d);
+    const past = iso < todayIso;
+    agents.forEach((agent, i) => {
+      let v = '';
+      if (chDates.has(iso)) v = 'CH';
+      else if (!past) v = upcomingVl.has(iso) && i === 1 ? 'VL' : '';
+      else {
+        const r = rnd();
+        if (r < 0.03) v = 'VL';
+        else if (r < 0.045) v = '0';
+        else v = String(Math.max(20, Math.round(base.get(agent) + (rnd() - 0.5) * 22)));
+      }
+      const mk = `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}|${agent}`;
+      if (/^\d+$/.test(v)) monthTotals.set(mk, (monthTotals.get(mk) || 0) + Number(v));
+      prod.push([String(d.getUTCFullYear()), MONTH_NAMES[d.getUTCMonth()], DAYS[dow], fmtDate(d), agent, v, v ? stamp(d, 17) : '', v ? 'lead@preview.local' : '']);
+    });
+  }
+  // A few realistic problems so every warning in the app can be seen.
+  const pastRows = prod.slice(1).filter((r) => r[5] && toIsoDate(r[3]) < todayIso && /^\d+$/.test(r[5]));
+  const thisMonth = pastRows.filter((r) => toMonthNumber(r[1]) === now.month);
+  if (thisMonth.length > 12) {
+    const dup = thisMonth[3]; prod.push([...dup.slice(0, 5), '40', dup[6], dup[7]]);   // duplicate row
+    thisMonth[8][5] = 'off';                                                            // unrecognized cell
+    const late = thisMonth[10]; late[5] = 'VL';                                          // late VL edit
+    const lateAt = todayCalendar(); lateAt.setUTCDate(lateAt.getUTCDate() - 1); late[6] = stamp(lateAt, 10);
+  }
+  const att = [['Year', 'Month', 'Agent', 'Attendance']];
+  const con = [['Year', '', 'Month', 'Agent', '', '', '', '', 'Legacy Facility', 'Outside Facility', 'Total Claims']];
+  const months = [start, calendarDate(now.year, now.month, 1)];
+  months.forEach((m) => {
+    const y = m.getUTCFullYear(), mo = m.getUTCMonth() + 1;
+    agents.forEach((agent) => {
+      att.push([String(y), MONTH_NAMES[mo - 1], agent, `${(92 + rnd() * 8).toFixed(1)}%`]);
+      const logged = monthTotals.get(`${y}-${mo}|${agent}`) || 0;
+      if (!logged) return;
+      const total = Math.round(logged * (0.97 + rnd() * 0.07));
+      const legacy = Math.round(total * (0.58 + rnd() * 0.12));
+      con.push([String(y), '', MONTH_NAMES[mo - 1], agent, '', '', '', '', String(legacy), String(total - legacy), String(total)]);
+    });
+  });
+  return { prod, att, con };
+}
+function toCsv(rows) {
+  return rows.map((r) => r.map((c) => { const v = String(c ?? ''); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; }).join(',')).join('\n');
+}
+function previewSheetText(sheetName) {
+  if (!previewStore) previewStore = buildPreviewStore();
+  if (sheetName === CONFIG.CLAIMS_SHEET_NAME) return toCsv(previewStore.prod);
+  if (sheetName === CONFIG.ATTENDANCE_SHEET_NAME) return toCsv(previewStore.att);
+  if (sheetName === CONFIG.CONSOLIDATED_SHEET_NAME) return toCsv(previewStore.con);
+  throw new Error(`${sheetName} isn't part of the preview sample data`);
+}
+// Log Claims in preview: update the sample row in memory, like the Apps Script would.
+function previewWriteClaims(year, month, day, agent, claims, email) {
+  if (!previewStore) previewStore = buildPreviewStore();
+  const date = `${month}/${day}/${year}`;
+  const now = new Date();
+  const at = `${now.getMonth() + 1}/${now.getDate()}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:00`;
+  const row = previewStore.prod.find((r) => r[4] === agent && r[3] === date);
+  if (row) { row[5] = String(claims); row[6] = at; row[7] = email; }
+  else {
+    const d = calendarDate(year, month, day);
+    previewStore.prod.push([String(year), MONTH_NAMES[month - 1], ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getUTCDay()], date, agent, String(claims), at, email]);
+  }
+  return { ok: true };
+}
+function setupPreviewPanel() {
+  if (!PREVIEW_MODE) return;
+  const panel = document.getElementById('preview-panel');
+  if (!panel) return;
+  panel.classList.remove('hidden');
+  const sel = document.getElementById('preview-agent-select');
+  sel.innerHTML = AGENTS.map((a) => `<option value="${escHtml(a.email)}">${escHtml(a.agent)}</option>`).join('');
+  document.getElementById('preview-manager-btn').onclick = () => enterApp({ name: 'Preview manager', email: 'manager@preview.local', picture: '', idToken: '', role: 'manager', preview: true });
+  document.getElementById('preview-agent-btn').onclick = () => {
+    const a = AGENTS.find((x) => x.email === sel.value);
+    if (a) enterApp({ name: a.agent, email: a.email, picture: '', idToken: '', role: 'agent', preview: true });
+  };
+}
+
 async function fetchSheetText(sheetName, label) {
+  if (PREVIEW_MODE) return previewSheetText(sheetName);
   const url = sheetCsvUrl(sheetName) + '&_cb=' + Date.now();
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`Failed to load ${label || sheetName} sheet (${res.status})`);
@@ -1805,6 +2134,7 @@ async function fetchTargets() {
    has a (possibly blank) row, which matches how the sheet is laid out.
    ========================================================================== */
 async function writeClaimsToSheet(year, month, day, agent, claims, idToken) {
+  if (PREVIEW_MODE) return previewWriteClaims(year, month, day, agent, claims, (state.identity && state.identity.email) || 'preview');
   if (!CONFIG.APPS_SCRIPT_URL) {
     throw new Error('APPS_SCRIPT_URL is not configured yet — see README.md.');
   }
@@ -2324,6 +2654,7 @@ function refreshIdTokenSilently(timeoutMs = 8000) {
 // touches the network/refresh path when the token's actually close to
 // expiring, so this is cheap to call before every save.
 async function ensureFreshIdToken() {
+  if (PREVIEW_MODE || (state.identity && state.identity.preview)) return '';
   if (!isTokenExpiringSoon(state.identity.idToken)) return state.identity.idToken;
   return refreshIdTokenSilently();
 }
@@ -2392,26 +2723,99 @@ function signOut() {
 /* ==========================================================================
    RENDER — NAVIGATION, TOPBAR, THEME
    ========================================================================== */
+// Sidebar pages. Monthly grid and Client report are their own pages in the
+// sidebar (they render inside the dashboard view with that tab selected);
+// phones keep the four-item bottom bar and reach them through the tabs.
 function navItems() {
   return [
-    { id: 'dashboard', label: 'Dashboard', short: 'Dashboard', icon: ICONS.dashboard },
-    { id: 'log', label: 'Log Claims', short: 'Log', icon: ICONS.edit },
-    { id: 'history', label: 'History', short: 'History', icon: ICONS.history },
-    { id: 'profile', label: 'Profile', short: 'Profile', icon: ICONS.profile },
+    { group: 'Reports' },
+    { id: 'dashboard', tab: 'overview', label: 'Overview', short: 'Overview', icon: ICONS.dashboard, mobile: true },
+    { id: 'dashboard', tab: 'monthly', label: 'Monthly grid', icon: ICONS.grid },
+    { id: 'dashboard', tab: 'client', label: 'Client report', icon: ICONS.clients },
+    { id: 'history', label: 'History', short: 'History', icon: ICONS.history, mobile: true },
+    { group: 'Work' },
+    { id: 'log', label: 'Log claims', short: 'Log', icon: ICONS.edit, mobile: true },
+    { id: 'profile', label: 'Profile', short: 'Profile', icon: ICONS.profile, mobile: true },
   ];
 }
+function isNavActive(item, mobile) {
+  if (item.id !== state.view) return false;
+  if (item.id !== 'dashboard') return true;
+  if (mobile) return true;
+  return (state.dashFilters && state.dashFilters.dashTab || 'overview') === item.tab;
+}
 function renderNav() {
-  const build = (mobile) => navItems().map((item) => `
-    <button class="nav-item ${state.view === item.id ? 'active' : ''}" data-view="${item.id}" ${state.view === item.id ? 'aria-current="page"' : ''}>
+  const build = (mobile) => navItems()
+    .filter((item) => (mobile ? item.mobile : true))
+    .map((item) => {
+      if (item.group) return `<p class="nav-group">${item.group}</p>`;
+      const active = isNavActive(item, mobile);
+      return `
+    <button class="nav-item ${active ? 'active' : ''}" data-view="${item.id}" ${item.tab ? `data-tab="${item.tab}"` : ''} ${active ? 'aria-current="page"' : ''}>
       ${item.icon}<span>${mobile ? item.short : item.label}</span>
-    </button>`).join('');
+    </button>`;
+    }).join('');
   document.getElementById('nav-desktop').innerHTML = build(false);
   document.getElementById('nav-mobile').innerHTML = build(true);
-  document.querySelectorAll('[data-view]').forEach((btn) => {
-    btn.addEventListener('click', () => switchView(btn.getAttribute('data-view')));
+  document.querySelectorAll('#nav-desktop [data-view], #nav-mobile [data-view]').forEach((btn) => {
+    btn.addEventListener('click', () => switchView(btn.getAttribute('data-view'), btn.getAttribute('data-tab')));
   });
 }
-function switchView(view) {
+// One filter bar at the top drives every page. Re-render whatever is showing.
+function rerenderCurrentView() {
+  syncSecondaryFilters();
+  if (state.view === 'dashboard') renderDashboard();
+  else if (state.view === 'history') renderHistory();
+  else if (state.view === 'profile') renderProfile();
+  else if (state.view === 'log') renderLogClaims();
+  renderNav();
+  setPageHeading(state.view);
+}
+// Profile and Log keep a small month picker for their entries tables; they
+// start from (and are reset to) whatever month the top bar is on.
+function syncSecondaryFilters() {
+  const f = state.dashFilters;
+  if (!f) return;
+  const month = f.month === 'all' ? nowInZone().month : f.month;
+  [state.profileLogFilters, state.logHistoryFilters].forEach((t) => { if (t) { t.year = f.year; t.month = month; } });
+}
+function renderGlobalFilters() {
+  const filters = state.dashFilters;
+  if (!filters) return;
+  const bar = document.getElementById('filters-bar');
+  const sig = optionsSignature() + '|' + state.view;
+  if (state.dashFiltersBarSig !== sig) {
+    const isDash = state.view === 'dashboard';
+    mountFiltersBar('filters-bar', filters, { showDateRange: isDash, showExport: isDash, showSource: isDash });
+    wireFilterInputs('filters-bar', filters, rerenderCurrentView);
+    wireMonthStepper('filters-bar', filters, rerenderCurrentView);
+    wireRangeToggle('filters-bar', filters, rerenderCurrentView);
+    wireSourceSwitch('filters-bar', filters, rerenderCurrentView);
+    state.dashFiltersBarSig = sig;
+  }
+  updateFiltersSummary('filters-bar', filters);
+  // The Log page is data entry: it has its own agent and date, so the
+  // report filters step aside there.
+  const managerProfile = state.view === 'profile' && state.identity && state.identity.role === 'manager';
+  bar.classList.toggle('hidden', state.view === 'log' || managerProfile);
+  const tab = filters.dashTab || 'overview';
+  const src = bar.querySelector('[data-source-switch]');
+  if (src) src.classList.toggle('hidden', !(state.view === 'dashboard' && tab === 'overview'));
+  document.getElementById('month-summary-btn').classList.toggle('hidden', state.view !== 'dashboard');
+}
+function wireSourceSwitch(containerId, filters, rerender) {
+  document.querySelectorAll(`#${containerId} [data-source]`).forEach((btn) => {
+    btn.onclick = () => {
+      if (filters.source === btn.dataset.source) return;
+      filters.source = btn.dataset.source;
+      document.querySelectorAll(`#${containerId} [data-source]`).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.source === filters.source)));
+      document.documentElement.classList.remove('cards-no-anim');
+      rerender();
+    };
+  });
+}
+function switchView(view, tab) {
+  if (view === 'dashboard' && tab && state.dashFilters) state.dashFilters.dashTab = tab;
   state.view = view;
   // User-initiated render — let the cards animate in (a prior silent poll may
   // have left animation suppressed).
@@ -2419,8 +2823,11 @@ function switchView(view) {
   ['dashboard', 'log', 'history', 'profile'].forEach((v) => {
     document.getElementById('view-' + v).classList.toggle('hidden', v !== view);
   });
+  syncSecondaryFilters();
+  renderGlobalFilters();
   renderNav();
   setPageHeading(view);
+  window.scrollTo({ top: 0 });
   if (view === 'dashboard') renderDashboard();
   if (view === 'log') renderLogClaims();
   if (view === 'history') renderHistory();
@@ -2471,26 +2878,40 @@ function periodLabelOf(f) {
   if (!f) return '';
   return f.month === 'all' ? `all of ${f.year}` : `${MONTH_NAMES[f.month - 1]} ${f.year}`;
 }
+function isManagerView() { return !!(state.identity && state.identity.role === 'manager'); }
+// Managers see which tab a number comes from; agents (who never see the
+// spreadsheet) get the same information in plain words.
+function sourceLabelOf(f, view) {
+  const tab = (f && f.dashTab) || 'overview';
+  const m = isManagerView();
+  if (view === 'dashboard' && tab === 'client') return m ? 'Client report (Consolidated tab)' : 'Client report';
+  if (view === 'dashboard' && tab === 'overview' && f && f.source === 'client') return m ? 'Client report totals ÷ work days from the Prod tab' : 'Client report totals ÷ your work days';
+  return m ? 'Agent logs (Prod tab)' : 'Logged claims';
+}
 function setPageHeading(view) {
   const h1 = document.getElementById('greeting');
   const sub = document.getElementById('page-subtitle');
   if (!h1 || !sub || !state.identity) return;
   const isManager = state.identity.role === 'manager';
   const f = state.dashFilters;
+  const tab = (f && f.dashTab) || 'overview';
+  const period = f ? (f.dateFrom || f.dateTo ? 'Custom range' : f.month === 'all' ? `All of ${f.year}` : `${MONTH_NAMES[f.month - 1]} ${f.year}`) : '';
+  const who = !f || f.agent === 'all' ? 'All agents' : (f.agent === matchAgentName() ? 'You' : f.agent);
+  const scope = [period, who, sourceLabelOf(f, view)].filter(Boolean).join(' · ');
   if (view === 'dashboard') {
-    h1.textContent = 'Welcome back' + (state.identity.name ? ', ' + firstNameOf(state.identity.name) : '');
-    const who = !f || f.agent === 'all' ? 'Team' : (f.agent === matchAgentName() ? 'Your' : firstNameOf(f.agent) + "'s");
-    sub.textContent = `${who} claims, pace and attendance for ${periodLabelOf(f)}.`;
+    h1.textContent = tab === 'monthly' ? 'Monthly grid' : tab === 'client' ? 'Client report' : 'Overview';
+    sub.textContent = scope;
   } else if (view === 'log') {
     h1.textContent = 'Log claims';
     sub.textContent = isManager ? 'Log or correct a day for any agent.' : 'Record your total for the day, or fix an earlier entry.';
   } else if (view === 'history') {
     h1.textContent = 'History';
-    sub.textContent = 'How the numbers have moved month to month.';
+    sub.textContent = `${f ? f.year : ''} month by month · ${who} · ${isManagerView() ? 'Agent logs (Prod tab)' : 'Logged claims'}`;
   } else if (view === 'profile') {
     h1.textContent = 'Profile';
-    sub.textContent = isManager ? 'Your account.' : `Your standing for ${MONTH_NAMES[nowInZone().month - 1]} and your full claims record.`;
+    sub.textContent = isManager ? 'Your account.' : `Your standing and full claims record · ${period}`;
   }
+  document.title = `${h1.textContent} · Takahami Billing`;
 }
 
 /* ==========================================================================
@@ -2526,6 +2947,12 @@ function filtersBarHtml(filters, opts) {
       <div class="field"><label>From</label><input type="date" data-filter="dateFrom" value="${filters.dateFrom || ''}"></div>
       <div class="field"><label>To</label><input type="date" data-filter="dateTo" value="${filters.dateTo || ''}"></div>
     </div>` : ''}
+    ${opts.showSource ? `
+    <div class="field source-field" data-source-switch><label id="source-label">Source</label>
+      <div class="seg seg-source" role="group" aria-labelledby="source-label">
+        <button type="button" data-source="logs" aria-pressed="${filters.source !== 'client'}">Agent logs</button>
+        <button type="button" data-source="client" aria-pressed="${filters.source === 'client'}">Client report</button>
+      </div></div>` : ''}
     ${(opts.showDateRange || opts.showExport) ? `<div class="filters-actions">
       ${opts.showDateRange ? `<button type="button" class="btn btn-glass" data-range-toggle aria-expanded="${filters.dateFrom || filters.dateTo ? 'true' : 'false'}">${ICONS.calendarRange}Custom range</button>` : ''}
       ${opts.showExport ? `<button type="button" class="btn btn-glass" id="export-btn">${ICONS.download}Export CSV</button>` : ''}
@@ -2602,6 +3029,7 @@ function invalidEntriesBannerHtml(agentFilter) {
   const examples = bad.slice(0, 3)
     .map((c) => `${agentFilter ? '' : escHtml(firstNameOf(c.agent)) + ' '}${escHtml(fmtAxisDate(c.date))} ("${escHtml(c.invalid)}")`)
     .join(', ');
+  if (!isManagerView()) return `<span><strong>${bad.length} entr${bad.length !== 1 ? 'ies' : 'y'}</strong> couldn't be read: ${examples}${bad.length > 3 ? ', …' : ''}. ${bad.length !== 1 ? "They aren't" : "It isn't"} counted until fixed. Log the day again, or ask your manager to correct it.</span>`;
   return `<span><strong>${bad.length} Claims cell${bad.length !== 1 ? 's' : ''}</strong> in the sheet ${bad.length !== 1 ? "aren't" : "isn't"} recognized: ${examples}${bad.length > 3 ? ', …' : ''}. Use a number, 0 for ABS, VL for planned leave or CH for a client holiday.</span>`;
 }
 
@@ -2627,6 +3055,7 @@ function duplicateEntriesBannerHtml(agentFilter) {
   const examples = dups.slice(0, 3).map((g) =>
     `${agentFilter ? '' : escHtml(firstNameOf(g[0].agent)) + ' '}${escHtml(fmtAxisDate(g[0].date))} (${g.map((c) => escHtml(valueOf(c))).join(' + ')})`
   ).join(', ');
+  if (!isManagerView()) return `<span><strong>${dups.length} date${dups.length !== 1 ? 's have' : ' has'} two entries</strong>: ${examples}${dups.length > 3 ? ', …' : ''}. Both are being added to your total, which makes your average look higher than it is. Ask your manager to remove the extra entry.</span>`;
   return `<span><strong>${dups.length} date${dups.length !== 1 ? 's have' : ' has'} more than one row</strong> in the sheet: ${examples}${dups.length > 3 ? ', …' : ''}. Every row is added to the total, which inflates Avg Claims / Day. Delete the extra row${dups.length !== 1 ? 's' : ''} in the Prod tab.</span>`;
 }
 
@@ -2667,6 +3096,7 @@ function renderMissingEntriesAlert() {
   const badHtml = invalidEntriesBannerHtml(me);
   if (badHtml) issues.push({ text: badHtml });
 
+  updateSideHealth(issues.length);
   if (!issues.length) { mount.innerHTML = ''; return; }
   const actionBtn = (it, i) => (it.action ? `<button class="notice-action" data-issue-action="${i}">${it.action.label}</button>` : '');
 
@@ -2694,6 +3124,20 @@ function renderMissingEntriesAlert() {
   mount.querySelectorAll('[data-issue-action]').forEach((btn) => {
     btn.onclick = () => issues[Number(btn.dataset.issueAction)].action.run();
   });
+}
+
+// Sidebar "N data issues" shortcut: opens the Overview with the panel open.
+function updateSideHealth(count) {
+  const btn = document.getElementById('side-health');
+  if (!btn) return;
+  btn.hidden = !count;
+  btn.innerHTML = `<i></i><span>${count} data issue${count !== 1 ? 's' : ''} to review</span>`;
+  btn.onclick = () => {
+    state.issuesPanelOpen = true;
+    switchView('dashboard', 'overview');
+    const m = document.getElementById('missing-entries-mount');
+    if (m) m.scrollIntoView({ block: 'start' });
+  };
 }
 
 // Jumps to the Log view with the agent and date already filled in.
@@ -2736,6 +3180,7 @@ function renderDashTabs(filters) {
       filters.dashTab = btn.dataset.dashTab;
       document.documentElement.classList.remove('cards-no-anim');
       renderDashboard();
+      renderNav();
       const again = document.querySelector(`#dash-tabs [data-dash-tab="${filters.dashTab}"]`);
       if (again) again.focus();
     };
@@ -2749,15 +3194,7 @@ function renderDashTabs(filters) {
 
 function renderDashboard() {
   const filters = state.dashFilters;
-  const sig = optionsSignature();
-  if (state.dashFiltersBarSig !== sig) {
-    mountFiltersBar('filters-bar', filters, { showDateRange: true, showExport: true });
-    wireFilterInputs('filters-bar', filters, renderDashboard);
-    wireMonthStepper('filters-bar', filters, renderDashboard);
-    wireRangeToggle('filters-bar', filters, renderDashboard);
-    state.dashFiltersBarSig = sig;
-  }
-  updateFiltersSummary('filters-bar', filters);
+  renderGlobalFilters();
   if (state.view === 'dashboard') setPageHeading('dashboard');
 
   // Export is re-bound on EVERY render (assignment, so idempotent): the
@@ -2776,6 +3213,7 @@ function renderDashboard() {
   safeRender('missing-entries', renderMissingEntriesAlert);
   safeRender('monthly-grid', () => renderMonthlyGrid(filters));
   safeRender('client-report', () => renderClientReport(filters));
+  safeRender('month-summary-btn', () => wireMonthSummaryButton(filters));
   document.getElementById('dash-overview').classList.toggle('hidden', tab !== 'overview');
   // Charts can't size themselves while hidden, so skip the overview work
   // entirely until it's the visible tab.
@@ -2808,6 +3246,26 @@ function renderDashboard() {
     }
   }
 
+  // Source switch: with "Client report" on, each agent's total becomes the
+  // Consolidated tab's Total Claims and the average / tier / pace are
+  // recalculated from it over the same Prod-tab work days. Charts stay on
+  // agent logs (the client report is monthly, not daily).
+  const sourceNote = document.getElementById('source-note-mount');
+  state.clientSourceActive = false;
+  if (filters.source === 'client') {
+    const reason = clientSourceUnavailableReason(filters);
+    if (reason) {
+      sourceNote.innerHTML = `<div class="info-banner">${ICONS.alert}<span>${reason} Showing agent logs instead.</span></div>`;
+    } else {
+      summaries = applyClientSource(summaries, filters);
+      teamSummaries = filters.agent === 'all' ? summaries : applyClientSource(teamSummaries, filters);
+      state.clientSourceActive = true;
+      sourceNote.innerHTML = '';
+    }
+  } else {
+    sourceNote.innerHTML = '';
+  }
+
   const single = filters.agent !== 'all';
   safeRender('kpi-cards', () => {
     const goalRow = document.getElementById('goal-row');
@@ -2829,7 +3287,6 @@ function renderDashboard() {
   safeRender('leaderboard', () => renderLeaderboard(teamSummaries, 'leaderboard-mount', filters));
   safeRender('upcoming-leave', renderUpcomingLeave);
   safeRender('late-edits', renderLateEdits);
-  safeRender('month-summary-btn', () => wireMonthSummaryButton(filters));
   safeRender('insights', () => renderInsights(computeInsights(filteredClaims.filter((c) => c.logged), filteredAttendance), 'insights-mount'));
 
   safeRender('trend-chart', () => renderLineChart('chart-claims-trend', claimsTrendSeries(filteredClaims), 'date', 'claims', 'primary', true));
@@ -2906,12 +3363,14 @@ function renderDailyClaimsTable(claims, selectedAgent, mountId, opts = {}) {
   mount.innerHTML = `
     <div class="glass card">
       <div class="dc-head">
-        <h3>${opts.title || 'Daily Claims — ' + escHtml(selectedAgent)}</h3>
+        <div class="dc-title">
+          <h3>${opts.title || 'Daily Claims — ' + escHtml(selectedAgent)}</h3>
+          <span>${claimsMetaHtml(t)}</span>
+        </div>
         ${opts.controlsHtml || ''}
-        <span>${claimsMetaHtml(t)}</span>
       </div>
       <div class="${wrapClass}">
-        <table class="dc-table">
+        <table class="dc-table claims-table">
           <thead>${t.headHtml}</thead>
           <tbody>${t.bodyHtml || `<tr><td colspan="${t.cols}" class="empty-state">${emptyMessage}</td></tr>`}</tbody>
         </table>
@@ -3174,7 +3633,7 @@ function renderClientReport(filters) {
     mount.innerHTML = `
       <div class="glass card">
         <div class="dc-head"><h3>Client Reports — ${monthLabel}</h3></div>
-        <div class="mgrid-hint">No client report data for ${monthLabel} yet. (Reads the "Consolidated" sheet.)</div>
+        <div class="mgrid-hint">No client report data for ${monthLabel} yet.${isManagerView() ? ' (Reads the "Consolidated" sheet.)' : ''}</div>
       </div>`;
     return;
   }
@@ -3206,7 +3665,7 @@ function renderClientReport(filters) {
           <tfoot><tr><td>Grand Total</td><td class="num">${fmtNum(totals.legacy)}</td><td class="num">${fmtNum(totals.outside)}</td><td class="num">${fmtNum(totals.total)}</td><td class="num">${totals.workDays}</td><td class="num" title="Average of each agent's Avg / day">${totals.avgPerDay === null ? '—' : fmtNum(totals.avgPerDay, 1)}</td><td></td></tr></tfoot>
         </table>
       </div>
-      <p class="card-note">Avg Claims / Day = Total Claims ÷ Work Days, and the KPI Tier is based on that average. Work Days come from the Prod tab: ABS counts as a work day; VL, CH and blank days don't. The team figure is the average of each agent's Avg / day.</p>
+      <p class="card-note">Avg Claims / Day = Total Claims ÷ Work Days, and the KPI Tier is based on that average. ${isManagerView() ? 'Work Days come from the Prod tab: ' : 'Work Days are the days with logged claims: '}ABS counts as a work day; VL, CH and blank days don't. The team figure is the average of each agent's Avg / day.</p>
     </div>`;
 
   const exportBtn = document.getElementById('cr-export-btn');
@@ -3393,7 +3852,11 @@ function computeMonthProjection(claims, s, year, month) {
   const target = s.kpi.nextTier || [...tiers].sort((a, b) => b.min - a.min)[0];
   if (!remaining) return { remaining: 0, target, neededPerDay: null };
   const neededTotal = target.min * (s.countedDays + remaining) - s.mtdClaims;
-  return { remaining, target, neededPerDay: Math.max(0, neededTotal / remaining), sustaining: !s.kpi.nextTier };
+  // What it takes to at least KEEP the current tier, used when the next one
+  // is out of realistic reach (e.g. 263/day with one day left).
+  const current = tiers.find((t) => t.level === s.kpi.level);
+  const keepPerDay = current ? Math.max(0, (current.min * (s.countedDays + remaining) - s.mtdClaims) / remaining) : null;
+  return { remaining, target, neededPerDay: Math.max(0, neededTotal / remaining), sustaining: !s.kpi.nextTier, current, keepPerDay };
 }
 function projectionSubtext(proj, kpi) {
   if (!proj) return kpiNextTierSubtext(kpi);
@@ -3401,6 +3864,11 @@ function projectionSubtext(proj, kpi) {
   if (!proj.remaining) return kpi.nextTier ? 'No work days left this month' : 'Top tier — month complete';
   const left = `${proj.remaining} work day${proj.remaining !== 1 ? 's' : ''} left`;
   if (proj.neededPerDay === 0) return `${left} · ${tierName} locked in`;
+  // More than double the tier's daily bar isn't a useful target.
+  if (!proj.sustaining && proj.neededPerDay > proj.target.min * 2 && proj.current) {
+    const keep = proj.keepPerDay === 0 ? `KPI ${proj.current.level} is secure` : `${fmtNum(Math.ceil(proj.keepPerDay))}/day keeps KPI ${proj.current.level}`;
+    return `${left} · ${tierName} is out of reach this month · ${keep}`;
+  }
   return `${left} · ${fmtNum(Math.ceil(proj.neededPerDay))}/day ${proj.sustaining ? 'keeps' : 'for'} ${tierName}`;
 }
 
@@ -3419,18 +3887,21 @@ function renderKpiCards(me, filters) {
   if (!me) { document.getElementById('kpi-grid').innerHTML = ''; return; }
   // A trend only means something when comparing one specific month to the
   // one before it — "All months" has no single "this month" to anchor on.
-  const trend = filters && filters.month !== 'all'
+  const client = !!me.clientSource;
+  // Month-over-month trends compare agent logs, so they're hidden while the
+  // client report is the source rather than mixing the two.
+  const trend = filters && filters.month !== 'all' && !client
     ? computeMonthOverMonthTrend(me.agent, filters.year, filters.month)
     : null;
   // Deficit needs a specific month too — it's "behind/ahead of pace
   // *this* month," which isn't meaningful across "All months."
   const deficit = filters && filters.month !== 'all'
-    ? computeClaimsDeficit(state.claims, me.agent, filters.year, filters.month, me.kpi)
+    ? (client ? deficitFromSummary(me, nextTierLevelOf(me)) : computeClaimsDeficit(state.claims, me.agent, filters.year, filters.month, me.kpi))
     : null;
   // Preview line: "and here's what KPI 5 would take" for anyone not
   // already being measured against KPI 5 as their primary target above.
   const stretchDeficit = deficit && deficit.targetLevel !== 5
-    ? computeDeficitForTier(state.claims, me.agent, filters.year, filters.month, 5)
+    ? (client ? deficitFromSummary(me, 5) : computeDeficitForTier(state.claims, me.agent, filters.year, filters.month, 5))
     : null;
 
   // The one number everything is scored on gets the big card: average,
@@ -3469,17 +3940,23 @@ function renderTeamKpiCards(summaries, filters) {
   const avgClaimsPerDay = summaries.reduce((s, a) => s + a.avgClaimsPerDay, 0) / summaries.length;
   const attendancePct = summaries.reduce((s, a) => s + a.attendancePct, 0) / summaries.length;
 
-  const trend = filters && filters.month !== 'all'
+  const client = summaries.some((s) => s.clientSource);
+  const trend = filters && filters.month !== 'all' && !client
     ? computeTeamMonthOverMonthTrend(filters.year, filters.month)
     : null;
+  const sumDeficits = (level) => {
+    let expected = 0, actual = 0; const levels = new Set();
+    summaries.forEach((s) => { const d = deficitFromSummary(s, level || nextTierLevelOf(s)); if (d) { expected += d.expected; actual += d.actual; levels.add(d.targetLevel); } });
+    return { expected, actual, deficit: expected - actual, targetLevel: levels.size === 1 ? [...levels][0] : null };
+  };
   const deficit = filters && filters.month !== 'all'
-    ? computeTeamClaimsDeficit(state.claims, summaries, filters.year, filters.month)
+    ? (client ? sumDeficits() : computeTeamClaimsDeficit(state.claims, summaries, filters.year, filters.month))
     : null;
   // targetLevel is null when the team's chasing a mix of tiers, and 4 or 5
   // when everyone happens to be chasing the same one — only skip the
   // preview once that shared target is already KPI 5 itself.
   const stretchDeficit = deficit && deficit.targetLevel !== 5
-    ? computeTeamDeficitForTier(state.claims, summaries, filters.year, filters.month, 5)
+    ? (client ? sumDeficits(5) : computeTeamDeficitForTier(state.claims, summaries, filters.year, filters.month, 5))
     : null;
 
   // Tier mix across the team, highest tier first ("KPI 5 × 2 · KPI 4 × 1").
@@ -3685,7 +4162,10 @@ function monthSummaryHtml(year, month) {
   const me = isManager ? null : matchAgentName();
   const { filteredClaims, filteredAttendance } = applyFilters(state.claims, state.attendance, { year, month, agent: 'all' });
   const agents = isManager ? state.agents : (me ? [me] : []);
-  const rows = computeAgentSummaries(filteredClaims, filteredAttendance, agents);
+  let rows = computeAgentSummaries(filteredClaims, filteredAttendance, agents);
+  const f = state.dashFilters || {};
+  const useClient = f.source === 'client' && !clientSourceUnavailableReason({ year, month, agent: 'all' });
+  if (useClient) rows = applyClientSource(rows, { year, month, agent: 'all' });
   const label = `${MONTH_NAMES[month - 1]} ${year}`;
   const esc = escHtml;
   const body = rows.map((s) => `
@@ -3703,7 +4183,7 @@ function monthSummaryHtml(year, month) {
   const dupCount = findDuplicateEntries(me).filter((g) => g[0].year === year && g[0].month === month).length;
   const badCount = state.claims.filter((c) => c.invalid && c.year === year && c.month === month && (!me || c.agent === me)).length;
   const warn = dupCount || badCount
-    ? `<p class="warn">Check the sheet before sharing: ${[dupCount ? `${dupCount} duplicate date${dupCount !== 1 ? 's' : ''}` : '', badCount ? `${badCount} unrecognized cell${badCount !== 1 ? 's' : ''}` : ''].filter(Boolean).join(' and ')} this month.</p>` : '';
+    ? `<p class="warn">${me ? 'Some entries need your manager to fix them' : 'Check the sheet before sharing'}: ${[dupCount ? `${dupCount} duplicate date${dupCount !== 1 ? 's' : ''}` : '', badCount ? `${badCount} unrecognized cell${badCount !== 1 ? 's' : ''}` : ''].filter(Boolean).join(' and ')} this month.</p>` : '';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Claims summary · ${esc(label)}</title>
 <style>
   body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #0f172a; margin: 2rem; font-size: 13px; }
@@ -3724,7 +4204,7 @@ function monthSummaryHtml(year, month) {
 </style></head><body>
   <div class="bar"><button onclick="window.print()">Print or save as PDF</button></div>
   <h1>Claims summary · ${esc(label)}</h1>
-  <p class="meta">Generated ${esc(generated)} (${esc(APP_TIME_ZONE)})</p>
+  <p class="meta">Generated ${esc(generated)} (${esc(APP_TIME_ZONE)}) · Source: ${useClient ? (me ? 'Client report totals ÷ work days' : 'Client report totals (Consolidated tab) ÷ work days (Prod tab)') : (me ? 'Logged claims' : 'Agent logs (Prod tab)')}</p>
   ${warn}
   <div class="wrap"><table>
     <thead><tr><th>Agent</th><th class="n">Work days</th><th class="n">ABS</th><th class="n">VL</th><th class="n">CH</th><th class="n">Total claims</th><th class="n">Avg / day</th><th class="n">KPI tier</th><th class="n">Attendance</th></tr></thead>
@@ -3759,6 +4239,44 @@ function tierChipHtml(kpi, empty) {
   if (empty) return '<span class="tier-chip t3">—</span>';
   const level = Math.min(Math.max(kpi.level || 1, 1), 5);
   return `<span class="tier-chip t${level}">${escHtml(kpi.tierLabel)}</span>`;
+}
+
+/* ---------- Data source: agent logs vs client report ---------- */
+function clientTotalsFor(filters) {
+  const totals = new Map();
+  (state.consolidated || []).forEach((r) => {
+    if (filters.year && r.year !== filters.year) return;
+    if (filters.month !== 'all' && r.month !== filters.month) return;
+    totals.set(r.agent, (totals.get(r.agent) || 0) + r.total);
+  });
+  return totals;
+}
+function clientSourceUnavailableReason(filters) {
+  if (filters.dateFrom || filters.dateTo) return "The client report is monthly, so it can't be used with a custom date range.";
+  if (!clientTotalsFor(filters).size) return `The client report has no data for ${periodLabelOf(filters)} yet.`;
+  return null;
+}
+function applyClientSource(summaries, filters) {
+  const totals = clientTotalsFor(filters);
+  const out = summaries.map((s) => {
+    const total = totals.get(s.agent) || 0;
+    const avg = s.countedDays ? total / s.countedDays : 0;
+    return { ...s, mtdClaims: total, avgClaimsPerDay: avg, kpi: calculateKpi(s.agent, avg), clientSource: true };
+  });
+  out.sort((a, b) => (b.countedDays > 0) - (a.countedDays > 0) || b.avgClaimsPerDay - a.avgClaimsPerDay || b.mtdClaims - a.mtdClaims || a.agent.localeCompare(b.agent));
+  out.forEach((s, i) => { s.rank = i + 1; });
+  return out;
+}
+// Pace from a summary alone (used when totals come from the client report).
+function deficitFromSummary(s, tierLevel) {
+  const tier = getTiersForAgent(s.agent).find((t) => t.level === tierLevel);
+  if (!tier) return null;
+  const expected = s.countedDays * tier.min;
+  return { expected, actual: s.mtdClaims, deficit: expected - s.mtdClaims, targetLevel: tierLevel };
+}
+function nextTierLevelOf(s) {
+  const tiers = getTiersForAgent(s.agent);
+  return (s.kpi.nextTier || tiers[tiers.length - 1]).level;
 }
 
 function renderLeaderboard(summaries, mountId, filters) {
@@ -4015,7 +4533,7 @@ function renderFacilitySplitChart(filters) {
   // optional), so say so plainly rather than drawing an empty axis.
   if (!list.length) {
     destroyChart(canvasId);
-    if (noteEl) noteEl.textContent = `No facility data for ${periodLabel}. (Reads the "Consolidated" sheet.)`;
+    if (noteEl) noteEl.textContent = `No facility data for ${periodLabel}.${isManagerView() ? ' (Reads the "Consolidated" sheet.)' : ''}`;
     return;
   }
 
@@ -4100,15 +4618,10 @@ function monthlyRollup(claims, attendance) {
 // always show the whole year; the Month filter only narrows the daily
 // chart and highlights that month everywhere else.
 function renderHistory() {
-  const filters = state.historyFilters;
-  const sig = optionsSignature();
-  if (state.historyFiltersBarSig !== sig) {
-    mountFiltersBar('history-filters-bar', filters, { showDateRange: false, showExport: false });
-    wireFilterInputs('history-filters-bar', filters, renderHistory);
-    wireMonthStepper('history-filters-bar', filters, renderHistory);
-    state.historyFiltersBarSig = sig;
-  }
-  updateFiltersSummary('history-filters-bar', filters);
+  // Follows the top filter bar (year, month highlight, agent). A custom
+  // date range is a dashboard tool and doesn't apply to month-by-month history.
+  const filters = { ...state.dashFilters, dateFrom: undefined, dateTo: undefined };
+  renderGlobalFilters();
 
   const single = filters.agent !== 'all';
   const { filteredClaims } = applyFilters(state.claims, state.attendance, filters);
@@ -4181,6 +4694,17 @@ function renderLogClaims() {
 
   const isManager = state.identity.role === 'manager';
   agentField.classList.toggle('hidden', !isManager);
+  // Agents never see the spreadsheet, so their help text talks about what
+  // they see in the app; managers get the sheet instructions.
+  const leaveHelp = document.getElementById('log-leave-help');
+  if (leaveHelp) leaveHelp.innerHTML = isManager ? `
+    <p>For planned or vacation leave, type <strong>VL</strong> in that agent's Claims cell in the Prod tab. For a client holiday, type <strong>CH</strong>. Both are left out of Avg Claims / Day.</p>
+    <p>Leave a day blank only if it hasn't been logged yet. Blank work days show up as missing.</p>
+    <p>Use <strong>Mark as absent (ABS)</strong> only for an <em>unplanned</em> absence. It logs a 0, which does count toward the average.</p>` : `
+    <p><strong>Planned or vacation leave (VL)</strong> and <strong>client holidays (CH)</strong> are added by your manager. You don't need to log anything for those days, and they don't count toward your Avg Claims / Day.</p>
+    <p>On a work day, log your total before the day ends. Days you haven't logged yet show up as missing.</p>
+    <p>Use <strong>Mark as absent (ABS)</strong> only for an <em>unplanned</em> absence. It logs a 0, which does count toward your average.</p>
+    <p>On leave but see a work day here? Ask your manager to mark it as VL.</p>`;
   // Rebuilt whenever the roster changes rather than once ever, so an agent
   // added to the Roster tab shows up here without a page reload. The current
   // selection is preserved across the rebuild.
@@ -4243,7 +4767,9 @@ function renderLogClaims() {
     if (existing && existing.invalid) {
       absentInput.checked = false;
       claimsInput.value = '';
-      note.textContent = `The sheet has "${existing.invalid}" for this date, which isn't a valid entry. Saving will replace it.`;
+      note.textContent = isManager
+        ? `The sheet has "${existing.invalid}" for this date, which isn't a valid entry. Saving will replace it.`
+        : `The entry for this date ("${existing.invalid}") couldn't be read. Saving will replace it.`;
       note.style.color = cssVarColor('--warm');
     } else if (existing && existing.excused) {
       absentInput.checked = false;
@@ -4292,7 +4818,7 @@ function renderLogClaims() {
       submitBtn.disabled = true;
       submitBtn.textContent = 'Saving…';
       statusEl.style.color = cssVarColor('--muted');
-      statusEl.textContent = 'Saving to your Google Sheet…';
+      statusEl.textContent = PREVIEW_MODE ? 'Saving to the preview data…' : (isManager ? 'Saving to the Google Sheet…' : 'Saving…');
 
       try {
         await ensureFreshIdToken();
@@ -4320,7 +4846,7 @@ function renderLogClaims() {
         const savedAt = new Date().toLocaleTimeString([], { timeZone: APP_TIME_ZONE });
         const forWhom = isManager ? ' for ' + agent : '';
         statusEl.style.color = cssVarColor('--muted');
-        statusEl.textContent = 'Saved — checking the sheet…';
+        statusEl.textContent = PREVIEW_MODE ? 'Saved — checking the preview data…' : (isManager ? 'Saved — checking the sheet…' : 'Saved — confirming…');
         renderLogHistory(agent);
         updateLogCurrentValueNote();
 
@@ -4328,13 +4854,17 @@ function renderLogClaims() {
         const verdict = await verifyClaimsWrite(agent, dateStr, claimsVal);
         if (verdict === 'confirmed') {
           statusEl.style.color = cssVarColor('--accent');
-          statusEl.textContent = (absent ? 'Saved as Absent ' : 'Saved ') + savedAt + forWhom + ' — confirmed in the sheet.';
+          statusEl.textContent = (absent ? 'Saved as Absent ' : 'Saved ') + savedAt + forWhom + (PREVIEW_MODE ? ' in the preview data (not your real sheet).' : (isManager ? ' — confirmed in the sheet.' : ' and confirmed.'));
         } else if (verdict === 'mismatch') {
           statusEl.style.color = cssVarColor('--warm');
-          statusEl.textContent = `The sheet still shows a different value for ${fmtDisplayDate(dateStr)}${forWhom}. Try saving again, or check the sheet directly.`;
+          statusEl.textContent = isManager
+            ? `The sheet still shows a different value for ${fmtDisplayDate(dateStr)}${forWhom}. Try saving again, or check the sheet directly.`
+            : `A different value is still showing for ${fmtDisplayDate(dateStr)}. Try saving again, or ask your manager to check it.`;
         } else {
           statusEl.style.color = cssVarColor('--warm');
-          statusEl.textContent = `Sent at ${savedAt}${forWhom}, but couldn't confirm it in the sheet yet. Check the sheet before assuming it saved.`;
+          statusEl.textContent = isManager
+            ? `Sent at ${savedAt}${forWhom}, but couldn't confirm it in the sheet yet. Check the sheet before assuming it saved.`
+            : `Sent at ${savedAt}, but it couldn't be confirmed yet. Check Your entries in a minute to make sure it's there.`;
         }
         // Re-render against whatever the verification read returned, so the
         // dashboard reflects the sheet rather than the optimistic guess.
@@ -4421,6 +4951,8 @@ function renderLogHistory(agent) {
     emptyMessage: `No claims logged for ${MONTH_NAMES[f.month - 1]} ${f.year}.`,
   });
 
+  safeRender('log-side', () => renderLogSide(agent, f));
+
   const prevBtn = document.getElementById('log-history-prev');
   const nextBtn = document.getElementById('log-history-next');
   const yearSelect = document.getElementById('log-history-year-select');
@@ -4448,6 +4980,92 @@ function renderLogHistory(agent) {
     f.year = Number(yearSelect.value);
     renderLogHistory(agent);
   };
+}
+
+/* ---------- Log page side panel: the month at a glance ---------- */
+// Follows the same month as "Your entries", for whoever the form is
+// logging for. Three cards: average + tier + what's left, a day-by-day bar
+// strip, and the month's leave / holidays with the current streak.
+function renderLogSide(agent, f) {
+  const mount = document.getElementById('log-side-mount');
+  if (!mount) return;
+  if (!agent || agent === 'all') { mount.innerHTML = ''; return; }
+  const monthClaims = state.claims.filter((c) => c.agent === agent && c.year === f.year && c.month === f.month);
+  const monthAtt = state.attendance.filter((a) => a.agent === agent && a.year === f.year && a.month === f.month);
+  const s = computeAgentSummaries(monthClaims, monthAtt, [agent])[0];
+  const label = `${MONTH_NAMES[f.month - 1]} ${f.year}`;
+  const isMe = agent === matchAgentName();
+  const who = isMe ? 'Your' : `${escHtml(firstNameOf(agent))}'s`;
+  const proj = computeMonthProjection(state.claims, s, f.year, f.month);
+
+  // Day strip: every weekday of the month up to today (or month end).
+  const today = todayISO();
+  const daysInMonth = new Date(Date.UTC(f.year, f.month, 0)).getUTCDate();
+  const byDate = new Map();
+  monthClaims.forEach((c) => {
+    const e = byDate.get(c.date) || { total: 0, logged: false, absent: false, excused: null };
+    if (c.logged) { e.total += c.claims; e.logged = true; e.absent = e.absent || c.absent; }
+    else if (c.excused) e.excused = c.excused;
+    byDate.set(c.date, e);
+  });
+  const days = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const iso = isoFromCalendar(calendarDate(f.year, f.month, d));
+    const dow = calendarDate(f.year, f.month, d).getUTCDay();
+    if (dow === 0 || dow === 6) continue;
+    if (iso > today) break;
+    days.push({ iso, d, e: byDate.get(iso) });
+  }
+  const tiers = getTiersForAgent(agent);
+  const target = s.kpi.nextTier || [...tiers].sort((a, b) => b.min - a.min)[0];
+  const max = Math.max(target.min * 1.25, ...days.map((x) => (x.e && x.e.logged ? x.e.total : 0)), 1);
+  const best = Math.max(0, ...days.map((x) => (x.e && x.e.logged ? x.e.total : 0)));
+  const bars = days.map(({ iso, d, e }) => {
+    const title = `${fmtAxisDate(iso)}: `;
+    if (e && e.excused) return `<span class="ds-bar ds-${e.excused.toLowerCase()}" style="height:18%" title="${title}${EXCUSED_CODES[e.excused]}"></span>`;
+    if (!e || !e.logged) return `<span class="ds-bar ds-missing" style="height:8%" title="${title}not logged"></span>`;
+    if (e.absent && !e.total) return `<span class="ds-bar ds-abs" style="height:8%" title="${title}ABS"></span>`;
+    const cls = e.total === best && best > 0 ? 'ds-best' : e.total >= target.min ? 'ds-hit' : 'ds-under';
+    return `<span class="ds-bar ${cls}" style="height:${Math.max(6, Math.round((e.total / max) * 100))}%" title="${title}${fmtNum(e.total)} claims"></span>`;
+  }).join('');
+  const targetPct = Math.round((target.min / max) * 100);
+  const hitDays = days.filter((x) => x.e && x.e.logged && x.e.total >= target.min).length;
+  const workDayCount = days.filter((x) => !(x.e && x.e.excused && !x.e.logged)).length;
+
+  const leave = monthClaims.filter((c) => c.excused).sort((a, b) => a.date.localeCompare(b.date));
+  const leaveHtml = leave.length
+    ? `<ul class="mini-list">${leave.map((c) => `<li><span class="ml-date"><span class="dc-dow">${fmtDayParts(c.date).dow}</span>${fmtDayParts(c.date).date}</span><span class="mini-names">${excusedPillHtml(c.excused)} ${EXCUSED_CODES[c.excused]}</span></li>`).join('')}</ul>`
+    : `<p class="side-empty">No leave or holidays in ${MONTH_NAMES[f.month - 1]}.</p>`;
+  const streak = f.year === nowInZone().year && f.month === nowInZone().month ? computeKpiStreak(state.claims, agent) : null;
+
+  mount.innerHTML = `
+    <section class="glass card side-card">
+      <div class="lb-head"><h3>${who} ${escHtml(MONTH_NAMES[f.month - 1])}</h3><span>Month at a glance</span></div>
+      <div class="side-hero">
+        <span class="side-avg mono">${s.countedDays ? fmtNum(s.avgClaimsPerDay, 1) : '—'}</span>
+        ${tierChipHtml(s.kpi, !s.countedDays)}
+      </div>
+      <p class="side-sub">claims per work day · ${avgMathSubtext(s)}</p>
+      ${s.countedDays ? tierProgressHtml(agent, s.kpi, s.avgClaimsPerDay) : ''}
+      ${proj ? `<p class="side-next">${projectionSubtext(proj, s.kpi)}</p>` : ''}
+      <div class="side-stats">
+        <div><span class="mono">${fmtNum(s.mtdClaims)}</span><small>claims</small></div>
+        <div><span class="mono">${s.countedDays}</span><small>work days</small></div>
+        <div><span class="mono">${best ? fmtNum(best) : '—'}</span><small>best day</small></div>
+      </div>
+    </section>
+    <section class="glass card side-card">
+      <div class="lb-head"><h3>Day by day</h3><span>${hitDays} of ${workDayCount} work days at KPI ${target.level} pace</span></div>
+      <div class="day-strip" role="img" aria-label="Claims per work day in ${escHtml(label)}; ${hitDays} days at or above ${target.min}">
+        <span class="ds-target" style="bottom:${targetPct}%"><i>${target.min}</i></span>
+        ${bars || '<span class="side-empty">No work days yet.</span>'}
+      </div>
+      <div class="ds-legend"><span><i class="ds-hit"></i>At pace</span><span><i class="ds-under"></i>Below</span><span><i class="ds-best"></i>Best</span><span><i class="ds-vl"></i>VL</span><span><i class="ds-ch"></i>CH</span></div>
+    </section>
+    <section class="glass card side-card">
+      <div class="lb-head"><h3>Leave and holidays</h3>${streak !== null ? `<span>KPI 4+ streak: ${streak} day${streak !== 1 ? 's' : ''}</span>` : ''}</div>
+      ${leaveHtml}
+    </section>`;
 }
 
 function renderProfile() {
@@ -4509,15 +5127,15 @@ function renderProfile() {
       <div class="glass card" style="margin-top:1.5rem;">
         <p style="font-size:.85rem; color:rgb(var(--muted)); margin:0;">
           You're signed in as a manager, so there's no personal claims history to show here.
-          Use <strong>Dashboard</strong> or <strong>History</strong> to review any agent's data,
+          Use <strong>Overview</strong> or <strong>History</strong> to review any agent's data,
           or <strong>Log Claims</strong> to log on their behalf.
         </p>
       </div>`;
   } else {
     noteMount.innerHTML = `
       <div class="error-banner glass" style="margin-top:1.5rem;">
-        We couldn't match your Google account name to an agent row in the sheet. Make sure the
-        "Agent" column matches your display name exactly.
+        We couldn't match your account to an agent on the team, so there's no claims record to show.
+        Ask your manager to check that you're on the roster with your exact name.
       </div>`;
   }
 }
@@ -4556,7 +5174,7 @@ function renderProfileClaimsLog(agentName) {
   mount.innerHTML = `
     <p style="font-size:.76rem; color:rgb(var(--muted)); margin:-.6rem 0 .9rem;">${claimsMetaHtml(t)}</p>
     <div class="dc-table-wrap">
-      <table class="dc-table">
+      <table class="dc-table claims-table">
         <thead>${t.headHtml}</thead>
         <tbody>${t.bodyHtml || `<tr><td colspan="${t.cols}" class="empty-state">No claims logged for this month.</td></tr>`}</tbody>
       </table>
@@ -4783,8 +5401,8 @@ function enterApp(identity) {
 
   // Agents open on their own numbers; managers on the team.
   const ownAgent = identity.role === 'agent' && identity.name ? identity.name : 'all';
-  state.dashFilters = { year: currentYear, month: currentMonth, agent: ownAgent, dashTab: 'overview', showMonthlyGrid: false, showClientReport: false };
-  state.historyFilters = { year: currentYear, month: 'all', agent: ownAgent };
+  state.dashFilters = { year: currentYear, month: currentMonth, agent: ownAgent, dashTab: 'overview', source: 'logs', showMonthlyGrid: false, showClientReport: false };
+  state.historyFilters = state.dashFilters; // one source of truth for every page
   state.profileLogFilters = { year: currentYear, month: currentMonth };
   state.logHistoryFilters = { year: currentYear, month: currentMonth };
 
@@ -4814,6 +5432,10 @@ function enterApp(identity) {
   // by the time someone hits Save — failures here are fine to ignore,
   // since ensureFreshIdToken() will just try again at save time.
   if (state.tokenRefreshHandle) clearInterval(state.tokenRefreshHandle);
+  state.tokenRefreshHandle = null;
+  const banner = document.getElementById('preview-banner');
+  if (banner) banner.classList.toggle('hidden', !identity.preview);
+  if (identity.preview) return; // no Google token to renew in preview
   state.tokenRefreshHandle = setInterval(() => {
     refreshIdTokenSilently().catch((err) => console.warn('Background token refresh skipped:', err.message));
   }, 45 * 60 * 1000);
@@ -4846,10 +5468,12 @@ window.addEventListener('DOMContentLoaded', () => {
   if (loginLogoMobile && brandLogo) loginLogoMobile.src = brandLogo.src;
   const loginYear = document.getElementById('login-year');
   if (loginYear) loginYear.textContent = new Date().getFullYear();
+  if (window.Chart) Chart.defaults.font.family = "'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif";
   initTheme();
   loadSheetConfig();
-  initGoogleSignIn();
-  const saved = localStorage.getItem('takahami_identity');
+  setupPreviewPanel();
+  if (!PREVIEW_MODE) initGoogleSignIn();
+  const saved = PREVIEW_MODE ? null : localStorage.getItem('takahami_identity');
   if (saved) {
     try { enterApp(JSON.parse(saved)); } catch (e) { localStorage.removeItem('takahami_identity'); }
   }
