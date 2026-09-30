@@ -498,6 +498,8 @@
   .dc-dow { color: rgb(var(--muted)); font-weight: 500; display: inline-block; min-width: 2.4em; }
   .abs-pill { display: inline-block; font-size: .68rem; font-weight: 700; letter-spacing: .02em; padding: .1rem .45rem; border-radius: 999px; background: rgb(var(--warm) / .14); color: rgb(var(--warm)); }
   .not-logged { color: rgb(var(--muted)); font-style: italic; font-size: .76rem; }
+  .excused-pill { display: inline-block; font-size: .68rem; font-weight: 700; letter-spacing: .02em; padding: .1rem .45rem; border-radius: 999px; background: rgb(var(--muted) / .14); color: rgb(var(--muted)); }
+  .invalid-pill { display: inline-block; font-size: .68rem; font-weight: 700; padding: .1rem .45rem; border-radius: 999px; border: 1px dashed rgb(var(--warm)); color: rgb(var(--warm)); max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
   .best-key { display: inline-flex; align-items: center; gap: .35rem; }
   .best-key i { width: .7rem; height: .7rem; border-radius: .2rem; background: rgb(var(--accent) / .3); display: inline-block; }
 
@@ -805,7 +807,8 @@
             <p class="log-help">Enter the <strong>day's total</strong>. Saving replaces any number already logged for that date, so you can also use this to correct an entry.</p>
             <details class="log-details">
               <summary>Leave, holiday, or absence?</summary>
-              <p>For planned leave or a client holiday, don't log anything. Days with no entry are left out of Avg Claims / Day, so they won't count against you.</p>
+              <p>For planned or vacation leave, type <strong>VL</strong> in the Claims cell of the sheet. For a client holiday, type <strong>CH</strong>. Both are left out of Avg Claims / Day, so they won't count against you.</p>
+              <p>Leave a day blank only if it hasn't been logged yet. Blank work days show up as missing.</p>
               <p>Use <strong>Mark as absent (ABS)</strong> only for an <em>unplanned</em> absence. It logs a 0, which does count toward the average.</p>
             </details>
             <div style="display:flex; flex-direction:column; gap:1rem;">
@@ -1541,6 +1544,36 @@ function fmtLoggedAt(loggedAt) {
   return loggedAt;
 }
 
+/* What a Claims cell can hold, and how each one is counted:
+     a number > 0  → worked day: counts in claims AND in the day count
+     0             → ABS (unplanned absence): counts in the day count only
+     VL            → planned / vacation leave: excluded from the day count
+     CH            → client holiday: excluded from the day count
+     blank         → not logged yet: excluded, and flagged as missing
+     anything else → invalid: excluded, and flagged so it gets fixed
+   Everything goes in the Claims column (F). VL / CH are matched
+   case-insensitively and ignoring spaces/dots, so "vl", " VL ", "C.H."
+   all work. */
+const EXCUSED_CODES = { VL: 'Planned / vacation leave', CH: 'Client holiday' };
+function excusedCodeOf(v) {
+  const code = String(v ?? '').toUpperCase().replace(/[\s.]/g, '');
+  return Object.prototype.hasOwnProperty.call(EXCUSED_CODES, code) ? code : null;
+}
+function parseClaimsCell(rawCell) {
+  const raw = String(rawCell ?? '').trim();
+  const numeric = raw !== '' && /^\d+(\.\d+)?$/.test(raw.replace(/,/g, ''));
+  if (numeric) {
+    const claims = Number(raw.replace(/,/g, ''));
+    return { claims, logged: true, absent: claims === 0, excused: null, invalid: null };
+  }
+  const code = excusedCodeOf(raw);
+  if (code) return { claims: 0, logged: false, absent: false, excused: code, invalid: null };
+  if (raw === '') return { claims: 0, logged: false, absent: false, excused: null, invalid: null };
+  return { claims: 0, logged: false, absent: false, excused: null, invalid: raw };
+}
+// "Handled" = the day needs no reminder: logged, or marked VL / CH.
+function isHandledEntry(c) { return c.logged || !!c.excused; }
+
 async function fetchClaims() {
   const text = await fetchSheetText(CONFIG.CLAIMS_SHEET_NAME, 'Claims');
   lastRawCsv.claims = text;
@@ -1558,13 +1591,11 @@ async function fetchClaims() {
       // Distinguish a blank Claims cell (never logged) from a typed value —
       // including a typed 0, which now means "absent (ABS)". Number('') is 0,
       // so we can't rely on the parsed number alone; check the raw cell.
-      const rawClaims = String(r[5] ?? '').trim();
-      const logged = rawClaims !== '';
-      const claims = logged ? toNum(rawClaims) : 0;
+      const entry = parseClaimsCell(r[5]);
       return {
         year: toNum(r[0]), month: toMonthNumber(r[1]), day: dayOfMonth,
         date: isoDate, agent: String(r[4]).trim(),
-        claims, logged, absent: logged && claims === 0,
+        ...entry,
         loggedAt: parseLoggedAt(r[6]),
       };
     });
@@ -1797,7 +1828,7 @@ function computeMissingWorkdays(claims, agentName, maxLookback = 14, loggedIndex
   // so the claims list is walked once rather than once per agent.
   const loggedDates = loggedIndex
     ? (loggedIndex.get(agentName) || new Set())
-    : new Set(claims.filter((c) => c.agent === agentName && c.logged).map((c) => c.date));
+    : new Set(claims.filter((c) => c.agent === agentName && isHandledEntry(c)).map((c) => c.date));
   const missing = [];
   const cursor = todayCalendar();
   cursor.setUTCDate(cursor.getUTCDate() - 1);
@@ -1830,13 +1861,18 @@ function computeAgentSummaries(claims, attendance, agentNames) {
     // Blank / never-logged days are excluded. Because absences add to the
     // denominator but not the numerator, missing work lowers the average —
     // this is the attendance-adjusted "claims per day" the KPI is based on.
+    // VL (planned leave) and CH (client holiday) are never "logged", so they
+    // stay out of the denominator — which makes it the scheduled work days.
     const countedDays = new Set(agentClaims.filter((c) => c.logged).map((c) => c.date)).size;
+    const absDays = new Set(agentClaims.filter((c) => c.logged && c.absent).map((c) => c.date)).size;
+    const vlDays = new Set(agentClaims.filter((c) => !c.logged && c.excused === 'VL').map((c) => c.date)).size;
+    const chDays = new Set(agentClaims.filter((c) => !c.logged && c.excused === 'CH').map((c) => c.date)).size;
     const avgClaimsPerDay = countedDays > 0 ? mtdClaims / countedDays : 0;
     const agentAttendance = attendanceByAgent.get(agent) || [];
     const attendancePct = agentAttendance.length
       ? agentAttendance.reduce((s, a) => s + a.attendance, 0) / agentAttendance.length : 0;
     const kpi = calculateKpi(agent, avgClaimsPerDay);
-    return { agent, todayClaims, mtdClaims, avgClaimsPerDay, attendancePct, kpi, rank: 0 };
+    return { agent, todayClaims, mtdClaims, avgClaimsPerDay, countedDays, absDays, vlDays, chDays, attendancePct, kpi, rank: 0 };
   });
   // Same ordering as before (stable sort by claims), without the per-row lookup.
   summaries.sort((a, b) => b.mtdClaims - a.mtdClaims);
@@ -2423,7 +2459,7 @@ function wireRangeToggle(containerId, filters, rerender) {
 function loggedDatesByAgent(claims) {
   const map = new Map();
   for (const c of claims) {
-    if (!c.logged) continue;
+    if (!isHandledEntry(c)) continue;
     let set = map.get(c.agent);
     if (!set) { set = new Set(); map.set(c.agent, set); }
     set.add(c.date);
@@ -2431,9 +2467,27 @@ function loggedDatesByAgent(claims) {
   return map;
 }
 
+// Cells the app can't read (e.g. "off", "PL", "-"). They're left out of
+// every number, so they have to be fixed in the sheet to count properly.
+function invalidEntriesBannerHtml(agentFilter) {
+  const bad = state.claims
+    .filter((c) => c.invalid && (!agentFilter || c.agent === agentFilter))
+    .sort((a, b) => b.date.localeCompare(a.date));
+  if (!bad.length) return '';
+  const examples = bad.slice(0, 3)
+    .map((c) => `${agentFilter ? '' : escHtml(firstNameOf(c.agent)) + ' '}${escHtml(fmtAxisDate(c.date))} ("${escHtml(c.invalid)}")`)
+    .join(', ');
+  return `
+    <div class="notice-banner" style="margin-top:1.1rem;">
+      <div class="notice-icon">${ICONS.alert}</div>
+      <span><strong>${bad.length} Claims cell${bad.length !== 1 ? 's' : ''}</strong> in the sheet ${bad.length !== 1 ? "aren't" : "isn't"} recognized: ${examples}${bad.length > 3 ? ', …' : ''}. Use a number, 0 for ABS, VL for planned leave or CH for a client holiday.</span>
+    </div>`;
+}
+
 function renderMissingEntriesAlert() {
   const mount = document.getElementById('missing-entries-mount');
   const isManager = state.identity.role === 'manager';
+  const invalidHtml = invalidEntriesBannerHtml(isManager ? null : matchAgentName());
 
   if (isManager) {
     const loggedIndex = loggedDatesByAgent(state.claims);
@@ -2442,10 +2496,10 @@ function renderMissingEntriesAlert() {
       .filter((g) => g.missing.length > 0)
       .sort((a, b) => b.missing.length - a.missing.length);
 
-    if (!gaps.length) { mount.innerHTML = ''; return; }
+    if (!gaps.length) { mount.innerHTML = invalidHtml; return; }
 
     const summary = gaps.map((g) => `${escHtml(g.agent)} (${g.missing.length} day${g.missing.length !== 1 ? 's' : ''})`).join(', ');
-    mount.innerHTML = `
+    mount.innerHTML = invalidHtml + `
       <div class="notice-banner" style="margin-top:1.1rem;">
         <div class="notice-icon">${ICONS.alert}</div>
         <span><strong>${gaps.length} agent${gaps.length !== 1 ? 's' : ''}</strong> ${gaps.length !== 1 ? "haven't" : "hasn't"} logged claims on a recent work day: ${summary}.</span>
@@ -2456,9 +2510,9 @@ function renderMissingEntriesAlert() {
     const myAgentName = matchAgentName();
     if (!myAgentName) { mount.innerHTML = ''; return; }
     const missing = computeMissingWorkdays(state.claims, myAgentName);
-    if (!missing.length) { mount.innerHTML = ''; return; }
+    if (!missing.length) { mount.innerHTML = invalidHtml; return; }
 
-    mount.innerHTML = `
+    mount.innerHTML = invalidHtml + `
       <div class="notice-banner" style="margin-top:1.1rem;">
         <div class="notice-icon">${ICONS.alert}</div>
         <span>You haven't logged claims for <strong>${missing.length} work day${missing.length !== 1 ? 's' : ''}</strong> (most recent: ${fmtDisplayDate(missing[0])}).</span>
@@ -2622,7 +2676,7 @@ function renderDashboard() {
 function claimsTableRows(rows, { newestFirst = false } = {}) {
   const today = todayISO();
   const visible = rows.filter((r) => {
-    if (r.logged) return true;
+    if (r.logged || r.excused || r.invalid) return true;
     if (r.date > today) return false;
     const dow = isoToUtcDate(r.date).getUTCDay();
     return dow !== 0 && dow !== 6 && !isFederalHoliday(r.date);
@@ -2633,7 +2687,9 @@ function claimsTableRows(rows, { newestFirst = false } = {}) {
   const showLoggedAt = visible.some((r) => r.loggedAt);
   const bodyHtml = visible.map((r) => {
     const { dow, date } = fmtDayParts(r.date);
-    const value = !r.logged ? '<span class="not-logged">Not logged</span>'
+    const value = r.excused ? excusedPillHtml(r.excused)
+      : r.invalid ? invalidPillHtml(r.invalid)
+      : !r.logged ? '<span class="not-logged">Not logged</span>'
       : r.absent ? '<span class="abs-pill" title="Unplanned absence, counts as 0">ABS</span>'
       : fmtNum(r.claims);
     return `
@@ -2644,10 +2700,19 @@ function claimsTableRows(rows, { newestFirst = false } = {}) {
       </tr>`;
   }).join('');
   const headHtml = `<tr><th>Date</th><th class="num">Claims</th>${showLoggedAt ? '<th>Logged at</th>' : ''}</tr>`;
-  return { bodyHtml, headHtml, cols: showLoggedAt ? 3 : 2, loggedCount: logged.length, total, hasBest: best > 0 };
+  const vlCount = visible.filter((r) => r.excused === 'VL').length;
+  const chCount = visible.filter((r) => r.excused === 'CH').length;
+  return { bodyHtml, headHtml, cols: showLoggedAt ? 3 : 2, loggedCount: logged.length, vlCount, chCount, total, hasBest: best > 0 };
+}
+function excusedPillHtml(code) {
+  return `<span class="excused-pill" title="${EXCUSED_CODES[code]}, not counted in Avg Claims / Day">${code}</span>`;
+}
+function invalidPillHtml(raw) {
+  return `<span class="invalid-pill" title="Not recognized. Use a number, 0 for ABS, VL or CH.">"${escHtml(raw)}"?</span>`;
 }
 function claimsMetaHtml(t) {
-  return `${t.loggedCount} day${t.loggedCount !== 1 ? 's' : ''} logged · ${fmtNum(t.total)} total${t.hasBest ? ' · <span class="best-key"><i></i>best day</span>' : ''}`;
+  const excl = [t.vlCount ? `${t.vlCount} VL` : '', t.chCount ? `${t.chCount} CH` : ''].filter(Boolean).join(', ');
+  return `${t.loggedCount} day${t.loggedCount !== 1 ? 's' : ''} logged${excl ? ` (${excl} excluded)` : ''} · ${fmtNum(t.total)} total${t.hasBest ? ' · <span class="best-key"><i></i>best day</span>' : ''}`;
 }
 
 function renderDailyClaimsTable(claims, selectedAgent, mountId, opts = {}) {
@@ -2689,7 +2754,7 @@ function monthlyGridData(claims, year, month) {
   // Rows: only days that actually have at least one entry, oldest first —
   // same as the sheet (weekends/holidays with nothing logged don't appear).
   const today = todayISO();
-  const days = Array.from(new Set(inMonth.filter((c) => c.logged || c.date <= today).map((c) => c.date))).sort();
+  const days = Array.from(new Set(inMonth.filter((c) => c.logged || c.excused || c.date <= today).map((c) => c.date))).sort();
 
   // Columns: full agent roster so the grid is stable month to month, even
   // for an agent who logged nothing (they just show an empty column).
@@ -2701,7 +2766,14 @@ function monthlyGridData(claims, year, month) {
   // A blank Claims cell in the sheet is "no entry" (null), exactly like a
   // missing row — it used to land here as 0 and look identical to ABS.
   const absent = new Set();
+  const marks = new Map(); // 'date|agent' → 'VL' | 'CH' | { invalid: raw }
   inMonth.forEach((c) => {
+    if (c.excused || c.invalid) {
+      if (matrix[c.date] && Object.prototype.hasOwnProperty.call(matrix[c.date], c.agent)) {
+        marks.set(c.date + '|' + c.agent, c.excused || { invalid: c.invalid });
+      }
+      return;
+    }
     if (!c.logged) return;
     if (matrix[c.date] && Object.prototype.hasOwnProperty.call(matrix[c.date], c.agent)) {
       matrix[c.date][c.agent] = c.claims;
@@ -2720,7 +2792,7 @@ function monthlyGridData(claims, year, month) {
   const colMax = {};
   agents.forEach((a) => { colMax[a] = days.reduce((m, d) => Math.max(m, matrix[d][a] || 0), 0); });
 
-  return { days, agents, matrix, rowTotals, colTotals, grand, colMax, absent };
+  return { days, agents, matrix, rowTotals, colTotals, grand, colMax, absent, marks };
 }
 
 function renderMonthlyGrid(filters) {
@@ -2739,7 +2811,7 @@ function renderMonthlyGrid(filters) {
     return;
   }
 
-  const { days, agents, matrix, rowTotals, colTotals, grand, colMax, absent } = monthlyGridData(state.claims, filters.year, filters.month);
+  const { days, agents, matrix, rowTotals, colTotals, grand, colMax, absent, marks } = monthlyGridData(state.claims, filters.year, filters.month);
 
   if (!days.length) {
     mount.innerHTML = `
@@ -2759,6 +2831,8 @@ function renderMonthlyGrid(filters) {
     const dateLabel = `<span class="dc-dow">${parts.dow}</span>${parts.date}`;
     const cells = agents.map((a) => {
       const v = matrix[d][a];
+      const mark = marks.get(d + '|' + a);
+      if (mark) return `<td class="mgrid-cell">${typeof mark === 'string' ? excusedPillHtml(mark) : invalidPillHtml(mark.invalid)}</td>`;
       if (v === null) return `<td class="mgrid-cell mgrid-empty" title="Not logged">—</td>`;
       if (absent.has(d + '|' + a)) return `<td class="mgrid-cell"><span class="abs-pill" title="Unplanned absence, counts as 0">ABS</span></td>`;
       let heatAttr = '';
@@ -2778,7 +2852,7 @@ function renderMonthlyGrid(filters) {
       <div class="dc-head">
         <h3>Monthly View — ${monthLabel}</h3>
         <div style="display:flex; align-items:center; gap:.75rem; flex-wrap:wrap;">
-          <span>— not logged · <span class="abs-pill">ABS</span> absent</span>
+          <span>— not logged · <span class="abs-pill">ABS</span> absent · <span class="excused-pill">VL</span> leave · <span class="excused-pill">CH</span> client holiday</span>
           <label style="display:flex; align-items:center; gap:.4rem; font-size:.76rem; color:rgb(var(--muted)); cursor:pointer; text-transform:none; letter-spacing:0;">
             <input type="checkbox" id="mgrid-heat-toggle" ${heatOn ? 'checked' : ''} style="width:auto; margin:0;"> Heat map
           </label>
@@ -2809,7 +2883,7 @@ function renderMonthlyGrid(filters) {
 // CSV that mirrors the on-screen pivot (same shape as the Google Sheet
 // export): a header row of agents, one row per day, a Grand Total column,
 // and a Grand Total row. Blank cells stay blank; absent days export as 0.
-function monthlyGridToCsv({ days, agents, matrix, rowTotals, colTotals, grand }, year) {
+function monthlyGridToCsv({ days, agents, matrix, rowTotals, colTotals, grand, marks }, year) {
   const esc = (s) => {
     const str = String(s);
     return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
@@ -2818,7 +2892,11 @@ function monthlyGridToCsv({ days, agents, matrix, rowTotals, colTotals, grand },
   lines.push(['Date', ...agents, 'Grand Total'].map(esc).join(','));
   days.forEach((d) => {
     const [, m, day] = d.split('-');
-    const cells = agents.map((a) => (matrix[d][a] === null ? '' : matrix[d][a]));
+    const cells = agents.map((a) => {
+      const mark = marks && marks.get(d + '|' + a);
+      if (typeof mark === 'string') return mark;
+      return matrix[d][a] === null ? '' : matrix[d][a];
+    });
     lines.push([`${Number(m)}/${Number(day)}/${year}`, ...cells, rowTotals[d]].map(esc).join(','));
   });
   lines.push(['Grand Total', ...agents.map((a) => colTotals[a]), grand].map(esc).join(','));
@@ -2917,6 +2995,20 @@ function clientReportToCsv(list, totals) {
   list.forEach((x) => lines.push([x.agent, x.legacy, x.outside, x.total].map(esc).join(',')));
   lines.push(['Grand Total', totals.legacy, totals.outside, totals.total].map(esc).join(','));
   return lines.join('\n');
+}
+
+// "1,147 ÷ 19 work days" plus what was left out, so the average can be
+// checked against the sheet line by line.
+function avgMathSubtext(s) {
+  if (!s.countedDays) return 'No work days logged yet';
+  const main = `${fmtNum(s.mtdClaims)} ÷ ${s.countedDays} work day${s.countedDays !== 1 ? 's' : ''}`;
+  const parts = [];
+  if (s.absDays) parts.push(`incl. ${s.absDays} ABS`);
+  const excl = [];
+  if (s.vlDays) excl.push(`${s.vlDays} VL`);
+  if (s.chDays) excl.push(`${s.chDays} CH`);
+  if (excl.length) parts.push(`${excl.join(', ')} excluded`);
+  return parts.length ? `${main} (${parts.join('; ')})` : main;
 }
 
 function kpiCardsHtml(cards) {
@@ -3072,7 +3164,7 @@ function renderKpiCards(me, filters) {
   const cards = [
     deficit ? { ...deficitCardFields(deficit, stretchDeficit) } : { icon: ICONS.trending, label: 'Pace vs Target', value: '—', sub: 'Pick a single month', accent: 'primary' },
     { icon: ICONS.calendarRange, label: filters && filters.month === 'all' ? 'Claims This Period' : 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), accent: 'primary', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
-    { icon: ICONS.gauge, label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1), accent: 'primary', trendHtml: trend ? trendHtml(trend.avgClaimsTrend, trend.prevMonthLabel) : '' },
+    { icon: ICONS.gauge, label: 'Avg Claims / Day', value: fmtNum(me.avgClaimsPerDay, 1), sub: avgMathSubtext(me), accent: 'primary', trendHtml: trend ? trendHtml(trend.avgClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.calendarCheck, label: 'Attendance', value: fmtPct(me.attendancePct), accent: 'primary', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.award, label: 'Productivity KPI Tier', value: `KPI ${me.kpi.level}`, sub: kpiNextTierSubtext(me.kpi), accent: me.kpi.nextTier ? 'primary' : 'accent', extraHtml: tierProgressHtml(me.agent, me.kpi, me.avgClaimsPerDay) },
   ];
@@ -3662,7 +3754,11 @@ function renderLogClaims() {
 
     const existing = state.claims.find((c) => c.agent === agent && c.date === dateStr);
     note.style.color = cssVarColor('--muted');
-    if (existing && existing.absent) {
+    if (existing && existing.excused) {
+      absentInput.checked = false;
+      claimsInput.value = '';
+      note.textContent = `Currently marked as ${existing.excused} (${EXCUSED_CODES[existing.excused].toLowerCase()}). Saving will replace it.`;
+    } else if (existing && existing.absent) {
       absentInput.checked = true;
       note.textContent = 'Currently logged as Absent (ABS). Saving will replace it.';
     } else if (existing && existing.claims > 0) {
@@ -3727,8 +3823,8 @@ function renderLogClaims() {
         // immediately, without waiting for the next poll. A submitted value
         // (including an absent 0) is always "logged".
         const existing = state.claims.find((c) => c.agent === agent && c.date === dateStr);
-        if (existing) { existing.claims = claimsVal; existing.logged = true; existing.absent = absent; existing.loggedAt = new Date(); }
-        else state.claims.push({ year, month, day, date: dateStr, agent, claims: claimsVal, logged: true, absent, loggedAt: new Date() });
+        if (existing) { existing.claims = claimsVal; existing.logged = true; existing.absent = absent; existing.excused = null; existing.invalid = null; existing.loggedAt = new Date(); }
+        else state.claims.push({ year, month, day, date: dateStr, agent, claims: claimsVal, logged: true, absent, excused: null, invalid: null, loggedAt: new Date() });
 
         const savedAt = new Date().toLocaleTimeString([], { timeZone: APP_TIME_ZONE });
         const forWhom = isManager ? ' for ' + agent : '';
