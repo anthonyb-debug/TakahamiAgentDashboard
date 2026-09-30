@@ -3154,6 +3154,19 @@ function renderClientReport(filters) {
     : `${MONTH_NAMES[filters.month - 1]} ${filters.year}`;
 
   const { list, totals } = clientReportData(state.consolidated, filters);
+  // Work days, Avg / day and KPI tier come from the Prod tab through the same
+  // function as the dashboard, so these numbers always match it exactly.
+  const { filteredClaims: crClaims, filteredAttendance: crAtt } = applyFilters(state.claims, state.attendance, { year: filters.year, month: filters.month, agent: 'all' });
+  const perf = new Map(computeAgentSummaries(crClaims, crAtt, list.map((x) => x.agent)).map((s) => [s.agent, s]));
+  list.forEach((x) => {
+    const s = perf.get(x.agent);
+    x.workDays = s ? s.countedDays : 0;
+    x.avgPerDay = s && s.countedDays ? s.avgClaimsPerDay : null;
+    x.kpi = s ? s.kpi : null;
+  });
+  const withAvg = list.filter((x) => x.avgPerDay !== null);
+  totals.workDays = list.reduce((t, x) => t + x.workDays, 0);
+  totals.avgPerDay = withAvg.length ? withAvg.reduce((t, x) => t + x.avgPerDay, 0) / withAvg.length : null;
 
   if (!list.length) {
     mount.innerHTML = `
@@ -3170,6 +3183,9 @@ function renderClientReport(filters) {
       <td class="num">${fmtNum(x.legacy)}</td>
       <td class="num">${fmtNum(x.outside)}</td>
       <td class="num cr-total">${fmtNum(x.total)}</td>
+      <td class="num">${x.workDays || '—'}</td>
+      <td class="num cr-total">${x.avgPerDay === null ? '—' : fmtNum(x.avgPerDay, 1)}</td>
+      <td class="num">${x.avgPerDay === null ? '—' : tierChipHtml(x.kpi)}</td>
     </tr>`).join('');
 
   mount.innerHTML = `
@@ -3183,11 +3199,12 @@ function renderClientReport(filters) {
       </div>
       <div class="dc-table-wrap-full">
         <table class="dc-table">
-          <thead><tr><th>Agent</th><th class="num">Legacy Facility</th><th class="num">Outside Facility</th><th class="num">Total Claims</th></tr></thead>
+          <thead><tr><th>Agent</th><th class="num">Legacy Facility</th><th class="num">Outside Facility</th><th class="num">Total Claims</th><th class="num">Work Days</th><th class="num">Avg Claims / Day</th><th class="num">KPI Tier</th></tr></thead>
           <tbody>${bodyRows}</tbody>
-          <tfoot><tr><td>Grand Total</td><td class="num">${fmtNum(totals.legacy)}</td><td class="num">${fmtNum(totals.outside)}</td><td class="num">${fmtNum(totals.total)}</td></tr></tfoot>
+          <tfoot><tr><td>Grand Total</td><td class="num">${fmtNum(totals.legacy)}</td><td class="num">${fmtNum(totals.outside)}</td><td class="num">${fmtNum(totals.total)}</td><td class="num">${totals.workDays}</td><td class="num" title="Average of each agent's Avg / day, same as the dashboard">${totals.avgPerDay === null ? '—' : fmtNum(totals.avgPerDay, 1)}</td><td></td></tr></tfoot>
         </table>
       </div>
+      <p class="card-note">Work Days, Avg Claims / Day and KPI Tier are calculated from the Prod tab, the same as the dashboard (VL and CH excluded). The team figure is the average of each agent's Avg / day.</p>
     </div>`;
 
   const exportBtn = document.getElementById('cr-export-btn');
@@ -3206,9 +3223,10 @@ function clientReportToCsv(list, totals) {
     return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
   };
   const lines = [];
-  lines.push(['Agent', 'Legacy Facility', 'Outside Facility', 'Total Claims'].map(esc).join(','));
-  list.forEach((x) => lines.push([x.agent, x.legacy, x.outside, x.total].map(esc).join(',')));
-  lines.push(['Grand Total', totals.legacy, totals.outside, totals.total].map(esc).join(','));
+  const r1 = (n) => (n === null || n === undefined ? '' : (Math.round(n * 10) / 10).toFixed(1));
+  lines.push(['Agent', 'Legacy Facility', 'Outside Facility', 'Total Claims', 'Work Days', 'Avg Claims / Day', 'KPI Tier'].map(esc).join(','));
+  list.forEach((x) => lines.push([x.agent, x.legacy, x.outside, x.total, x.workDays || 0, r1(x.avgPerDay), x.avgPerDay === null ? '' : x.kpi.tierLabel].map(esc).join(',')));
+  lines.push(['Grand Total', totals.legacy, totals.outside, totals.total, totals.workDays, r1(totals.avgPerDay), ''].map(esc).join(','));
   return lines.join('\n');
 }
 
