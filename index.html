@@ -1237,10 +1237,11 @@ const CONFIG = {
   // claims counts back into the Prod tab. See README.md — "Enable logging
   // claims" — for how to create this. Leave blank to disable the Log
   // Claims feature (the rest of the dashboard works fine without it).
-  // From this date on, a day's claims = Claims (col F) + Total Claims
-  // (col G). Every figure — Avg / Day, KPI tier, MTD, charts — uses that
-  // sum, and the overview shows the two parts separately. Days before this
-  // date keep counting column F only. Set to '' to switch it off.
+  // From this date on, a day counts its Total Claims (col G), which already
+  // includes the claims processed (col F). Every figure — Avg / Day, KPI
+  // tier, MTD, charts — uses it, and the overview also shows the processed
+  // part. A day with G left blank falls back to F. Days before this date
+  // keep counting column F only. Set to '' to switch it off.
   COMBINED_CLAIMS_FROM: '2026-10-01',
 
   APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbx_z10T6gJS7J9Pcy2dASp5tXwcASYG_Gb59WRYRpPu628lmRGh4TUZQAmERJVQy3RdBQ/exec',
@@ -1836,7 +1837,7 @@ function buildPreviewStore() {
       }
       const mk = `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}|${agent}`;
       if (/^\d+$/.test(v)) monthTotals.set(mk, (monthTotals.get(mk) || 0) + Number(v));
-      const tot = /^\d+$/.test(v) && Number(v) > 0 ? String(4 + Math.round(rnd() * 14)) : '';
+      const tot = /^\d+$/.test(v) && Number(v) > 0 ? String(Number(v) + 4 + Math.round(rnd() * 14)) : '';
       prod.push([String(d.getUTCFullYear()), MONTH_NAMES[d.getUTCMonth()], DAYS[dow], fmtDate(d), agent, v, tot, v ? stamp(d, 17) : '', v ? 'lead@preview.local' : '']);
     });
   }
@@ -2020,16 +2021,17 @@ function isHandledEntry(c) { return c.logged || !!c.excused; }
 // own banner, so it isn't reported a second time as missing.
 function isRemindedEntry(c) { return isHandledEntry(c) || !!c.invalid; }
 
-// Splits a day's count into its two parts and sets c.claims to what the
-// rest of the app counts: F alone, or F + G from COMBINED_CLAIMS_FROM on.
-//   c.processed   = column F (Claims)
+// Sets c.claims to what the rest of the app counts for this day: column F,
+// or from COMBINED_CLAIMS_FROM on, column G (Total Claims) when it's filled.
+// Total Claims already includes the claims processed, so they're never added.
+//   c.processed   = column F (Claims processed)
 //   c.totalClaims = column G (Total Claims), null when blank
-//   c.combined    = true when this day's c.claims includes column G
+//   c.combined    = true when this day counts column G
 function applyCombinedClaims(c) {
   if (c.processed === undefined) c.processed = c.claims;
   const from = CONFIG.COMBINED_CLAIMS_FROM;
-  c.combined = !!(from && c.logged && c.date >= from);
-  c.claims = c.processed + (c.combined ? (c.totalClaims || 0) : 0);
+  c.combined = !!(from && c.logged && !c.absent && c.date >= from && c.totalClaims != null);
+  c.claims = c.combined ? c.totalClaims : c.processed;
   return c;
 }
 
@@ -2325,11 +2327,9 @@ function computeAgentSummaries(claims, attendance, agentNames) {
     const agentClaims = claimsByAgent.get(agent) || [];
     const todayClaims = agentClaims.filter((c) => c.date === today).reduce((s, c) => s + c.claims, 0);
     const mtdClaims = agentClaims.reduce((s, c) => s + c.claims, 0);
-    // The two parts of mtdClaims, for the overview's breakdown line.
-    const combinedDays = agentClaims.filter((c) => c.combined);
-    const mtdExtra = combinedDays.reduce((s, c) => s + (c.totalClaims || 0), 0);
-    const mtdProcessed = mtdClaims - mtdExtra;
-    const hasCombined = combinedDays.length > 0;
+    // Claims processed (column F) behind mtdClaims, for the breakdown line.
+    const mtdProcessed = agentClaims.filter((c) => c.logged).reduce((s, c) => s + c.processed, 0);
+    const hasCombined = agentClaims.some((c) => c.combined);
     // Denominator = distinct days the agent logged anything: a real claim
     // count (claims > 0) PLUS days explicitly logged as absent (a typed 0).
     // Blank / never-logged days are excluded. Because absences add to the
@@ -2346,7 +2346,7 @@ function computeAgentSummaries(claims, attendance, agentNames) {
     const attendancePct = agentAttendance.length
       ? agentAttendance.reduce((s, a) => s + a.attendance, 0) / agentAttendance.length : 0;
     const kpi = calculateKpi(agent, avgClaimsPerDay);
-    return { agent, todayClaims, mtdClaims, mtdProcessed, mtdExtra, hasCombined, avgClaimsPerDay, countedDays, absDays, vlDays, chDays, attendancePct, kpi, rank: 0 };
+    return { agent, todayClaims, mtdClaims, mtdProcessed, hasCombined, avgClaimsPerDay, countedDays, absDays, vlDays, chDays, attendancePct, kpi, rank: 0 };
   });
   // Ranked by Avg Claims / Day (the same number KPI tiers are scored on),
   // so days on VL / CH never push anyone down. Agents with no work days
@@ -3373,8 +3373,8 @@ function claimsTableRows(rows, { newestFirst = false } = {}) {
       : r.invalid ? invalidPillHtml(r.invalid)
       : !r.logged ? '<span class="not-logged">Not logged</span>'
       : r.absent ? '<span class="abs-pill" title="Unplanned absence, counts as 0">ABS</span>'
-      : r.combined && r.totalClaims != null
-        ? `${fmtNum(r.claims)}<small class="dc-split">${fmtNum(r.processed)} + ${fmtNum(r.totalClaims)}</small>`
+      : r.combined
+        ? `${fmtNum(r.claims)}<small class="dc-split">${fmtNum(r.processed)} processed</small>`
         : fmtNum(r.claims);
     return `
       <tr class="${r.logged && r.claims === best && best > 0 ? 'dc-best' : ''}">
@@ -3738,11 +3738,11 @@ function clientReportToCsv(list, totals) {
   return lines.join('\n');
 }
 
-// "980 claims + 167 total claims" under a claims figure, once the period
-// includes days where the two are added together. Client-report figures
-// come from another tab and don't split this way, so they get nothing.
-function claimsSplitSubtext(processed, extra) {
-  return `${fmtNum(processed)} claims + ${fmtNum(extra)} total claims`;
+// "1,014 claims processed of 1,139 total" under a claims figure, once the
+// period includes days counted by Total Claims. Client-report figures come
+// from another tab and don't split this way, so they get nothing.
+function claimsSplitSubtext(processed, total) {
+  return `${fmtNum(processed)} claims processed of ${fmtNum(total)} total`;
 }
 
 // "1,147 ÷ 19 work days" plus what was left out, so the average can be
@@ -3979,7 +3979,7 @@ function renderKpiCards(me, filters) {
   const cards = [
     { html: heroHtml },
     deficit ? { ...deficitCardFields(deficit, stretchDeficit) } : { icon: ICONS.trending, label: 'Pace vs Target', value: '—', sub: 'Pick a single month', accent: 'primary' },
-    { icon: ICONS.calendarRange, label: filters && filters.month === 'all' ? 'Claims This Period' : 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), sub: me.hasCombined && !client ? claimsSplitSubtext(me.mtdProcessed, me.mtdExtra) : '', accent: 'primary', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
+    { icon: ICONS.calendarRange, label: filters && filters.month === 'all' ? 'Claims This Period' : 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), sub: me.hasCombined && !client ? claimsSplitSubtext(me.mtdProcessed, me.mtdClaims) : '', accent: 'primary', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.calendarCheck, label: 'Attendance', value: fmtPct(me.attendancePct), accent: 'primary', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
   ];
   document.getElementById('kpi-grid').innerHTML = kpiCardsHtml(cards);
@@ -3992,7 +3992,6 @@ function renderTeamKpiCards(summaries, filters) {
   if (!summaries.length) { mount.innerHTML = ''; return; }
   const mtdClaims = summaries.reduce((s, a) => s + a.mtdClaims, 0);
   const teamProcessed = summaries.reduce((s, a) => s + (a.mtdProcessed || 0), 0);
-  const teamExtra = summaries.reduce((s, a) => s + (a.mtdExtra || 0), 0);
   const teamHasCombined = summaries.some((a) => a.hasCombined);
   const avgClaimsPerDay = summaries.reduce((s, a) => s + a.avgClaimsPerDay, 0) / summaries.length;
   const attendancePct = summaries.reduce((s, a) => s + a.attendancePct, 0) / summaries.length;
@@ -4040,7 +4039,7 @@ function renderTeamKpiCards(summaries, filters) {
     deficit
       ? { ...deficitCardFields(deficit, stretchDeficit), label: 'Team Pace vs Target' }
       : { icon: ICONS.trending, label: 'Team Pace vs Target', value: '—', sub: 'Pick a single month', accent: 'primary' },
-    { icon: ICONS.calendarRange, label: filters && filters.month === 'all' ? 'Team Claims This Period' : 'Team Month-to-Date', value: fmtNum(mtdClaims), sub: teamHasCombined && !client ? claimsSplitSubtext(teamProcessed, teamExtra) : '', accent: 'primary', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
+    { icon: ICONS.calendarRange, label: filters && filters.month === 'all' ? 'Team Claims This Period' : 'Team Month-to-Date', value: fmtNum(mtdClaims), sub: teamHasCombined && !client ? claimsSplitSubtext(teamProcessed, mtdClaims) : '', accent: 'primary', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.calendarCheck, label: 'Team Attendance', value: fmtPct(attendancePct), accent: 'primary', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
   ];
   mount.innerHTML = kpiCardsHtml(cards);
@@ -4842,7 +4841,7 @@ function renderLogClaims() {
       absentInput.checked = false;
       claimsInput.value = existing.processed;
       const parts = existing.totalClaims != null
-        ? `${existing.processed} claims + ${existing.totalClaims} total claims${existing.combined ? ` = ${existing.claims}` : ''}`
+        ? `${existing.processed} claims processed of ${existing.totalClaims} total`
         : `${existing.processed}`;
       note.textContent = `Currently logged for this date: ${parts}. Saving will replace it.`;
     } else {
@@ -4874,6 +4873,7 @@ function renderLogClaims() {
     if (isManager && !agent) { statusEl.textContent = 'Choose who you\'re logging for.'; statusEl.style.color = cssVarColor('--warm'); return; }
     if (!absent && (isNaN(claimsVal) || claimsVal < 0)) { statusEl.textContent = 'Enter a valid number of claims, or tick "Mark as absent".'; statusEl.style.color = cssVarColor('--warm'); return; }
     if (totalVal !== null && (isNaN(totalVal) || totalVal < 0)) { statusEl.textContent = 'Enter a valid number for Total claims, or leave it blank.'; statusEl.style.color = cssVarColor('--warm'); return; }
+    if (totalVal !== null && totalVal < claimsVal) { statusEl.textContent = 'Total claims includes the claims processed, so it can\'t be lower than ' + claimsVal + '.'; statusEl.style.color = cssVarColor('--warm'); return; }
 
     // Read the Y/M/D straight out of the ISO string the date input gives us.
     // Round-tripping through a Date parsed at local midnight worked, but only
