@@ -858,7 +858,7 @@
   .dc-head { align-items: flex-end; margin-bottom: .9rem; }
   table.claims-table th:first-child, table.claims-table td:first-child { width: 10rem; }
   table.claims-table th:nth-child(2), table.claims-table td:nth-child(2) { width: 6rem; text-align: right; }
-  table.claims-table th.dc-total, table.claims-table td.dc-total { width: 7rem; text-align: right; }
+  .dc-split { display: block; font-size: .68rem; color: rgb(var(--muted)); font-weight: 400; white-space: nowrap; }
   table.claims-table th.dc-logged-at-h, table.claims-table td.dc-logged-at { padding-left: 2rem; }
   .log-layout { gap: 1.25rem; }
   /* Side by side only when there's real room: 860-1023px (no sidebar yet)
@@ -1237,6 +1237,12 @@ const CONFIG = {
   // claims counts back into the Prod tab. See README.md — "Enable logging
   // claims" — for how to create this. Leave blank to disable the Log
   // Claims feature (the rest of the dashboard works fine without it).
+  // From this date on, a day's claims = Claims (col F) + Total Claims
+  // (col G). Every figure — Avg / Day, KPI tier, MTD, charts — uses that
+  // sum, and the overview shows the two parts separately. Days before this
+  // date keep counting column F only. Set to '' to switch it off.
+  COMBINED_CLAIMS_FROM: '2026-10-01',
+
   APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbx_z10T6gJS7J9Pcy2dASp5tXwcASYG_Gb59WRYRpPu628lmRGh4TUZQAmERJVQy3RdBQ/exec',
 
   // Google OAuth client ID (Google Cloud Console → Credentials).
@@ -1830,7 +1836,7 @@ function buildPreviewStore() {
       }
       const mk = `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}|${agent}`;
       if (/^\d+$/.test(v)) monthTotals.set(mk, (monthTotals.get(mk) || 0) + Number(v));
-      const tot = /^\d+$/.test(v) && Number(v) > 0 ? String(Number(v) + Math.round(rnd() * 15)) : '';
+      const tot = /^\d+$/.test(v) && Number(v) > 0 ? String(4 + Math.round(rnd() * 14)) : '';
       prod.push([String(d.getUTCFullYear()), MONTH_NAMES[d.getUTCMonth()], DAYS[dow], fmtDate(d), agent, v, tot, v ? stamp(d, 17) : '', v ? 'lead@preview.local' : '']);
     });
   }
@@ -2014,6 +2020,19 @@ function isHandledEntry(c) { return c.logged || !!c.excused; }
 // own banner, so it isn't reported a second time as missing.
 function isRemindedEntry(c) { return isHandledEntry(c) || !!c.invalid; }
 
+// Splits a day's count into its two parts and sets c.claims to what the
+// rest of the app counts: F alone, or F + G from COMBINED_CLAIMS_FROM on.
+//   c.processed   = column F (Claims)
+//   c.totalClaims = column G (Total Claims), null when blank
+//   c.combined    = true when this day's c.claims includes column G
+function applyCombinedClaims(c) {
+  if (c.processed === undefined) c.processed = c.claims;
+  const from = CONFIG.COMBINED_CLAIMS_FROM;
+  c.combined = !!(from && c.logged && c.date >= from);
+  c.claims = c.processed + (c.combined ? (c.totalClaims || 0) : 0);
+  return c;
+}
+
 // Column G (Total Claims): a whole number, or null when blank/unreadable.
 function parseTotalCell(raw) {
   const t = String(raw ?? '').trim().replace(/,/g, '');
@@ -2038,14 +2057,14 @@ async function fetchClaims() {
       // including a typed 0, which now means "absent (ABS)". Number('') is 0,
       // so we can't rely on the parsed number alone; check the raw cell.
       const entry = parseClaimsCell(r[5]);
-      return {
+      return applyCombinedClaims({
         year: toNum(r[0]), month: toMonthNumber(r[1]), day: dayOfMonth,
         date: isoDate, agent: String(r[4]).trim(),
         ...entry,
         totalClaims: parseTotalCell(r[6]),          // G — Total Claims
         loggedAt: parseLoggedAt(r[7]),              // H — Last Updated
         updatedBy: String(r[8] ?? '').trim(),       // I — Updated By
-      };
+      });
     });
 }
 
@@ -2210,7 +2229,7 @@ async function verifyClaimsWrite(agent, dateStr, expectedClaims, expectedTotal =
     try {
       const claims = await fetchClaims();
       const row = claims.find((c) => c.agent === agent && c.date === dateStr);
-      if (row && row.logged && row.claims === expectedClaims && (row.totalClaims ?? null) === expectedTotal) {
+      if (row && row.logged && row.processed === expectedClaims && (row.totalClaims ?? null) === expectedTotal) {
         // Adopt the verified read wholesale — it's fresher than local state.
         state.claims = claims;
         return 'confirmed';
@@ -2306,6 +2325,11 @@ function computeAgentSummaries(claims, attendance, agentNames) {
     const agentClaims = claimsByAgent.get(agent) || [];
     const todayClaims = agentClaims.filter((c) => c.date === today).reduce((s, c) => s + c.claims, 0);
     const mtdClaims = agentClaims.reduce((s, c) => s + c.claims, 0);
+    // The two parts of mtdClaims, for the overview's breakdown line.
+    const combinedDays = agentClaims.filter((c) => c.combined);
+    const mtdExtra = combinedDays.reduce((s, c) => s + (c.totalClaims || 0), 0);
+    const mtdProcessed = mtdClaims - mtdExtra;
+    const hasCombined = combinedDays.length > 0;
     // Denominator = distinct days the agent logged anything: a real claim
     // count (claims > 0) PLUS days explicitly logged as absent (a typed 0).
     // Blank / never-logged days are excluded. Because absences add to the
@@ -2322,7 +2346,7 @@ function computeAgentSummaries(claims, attendance, agentNames) {
     const attendancePct = agentAttendance.length
       ? agentAttendance.reduce((s, a) => s + a.attendance, 0) / agentAttendance.length : 0;
     const kpi = calculateKpi(agent, avgClaimsPerDay);
-    return { agent, todayClaims, mtdClaims, avgClaimsPerDay, countedDays, absDays, vlDays, chDays, attendancePct, kpi, rank: 0 };
+    return { agent, todayClaims, mtdClaims, mtdProcessed, mtdExtra, hasCombined, avgClaimsPerDay, countedDays, absDays, vlDays, chDays, attendancePct, kpi, rank: 0 };
   });
   // Ranked by Avg Claims / Day (the same number KPI tiers are scored on),
   // so days on VL / CH never push anyone down. Agents with no work days
@@ -2458,8 +2482,8 @@ function computeInsights(claims, attendance) {
 
 function claimsToCsv(rows) {
   const esc = (v) => (/[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v);
-  const header = ['Year', 'Month', 'Day', 'Date', 'Agent', 'Claims'].join(',');
-  const lines = rows.map((r) => [r.year, MONTH_NAMES[r.month - 1] || r.month, r.day, r.date, esc(r.agent), r.claims].join(','));
+  const header = ['Year', 'Month', 'Day', 'Date', 'Agent', 'Claims', 'Total Claims', 'Counted'].join(',');
+  const lines = rows.map((r) => [r.year, MONTH_NAMES[r.month - 1] || r.month, r.day, r.date, esc(r.agent), r.processed ?? r.claims, r.totalClaims ?? '', r.claims].join(','));
   return [header, ...lines].join('\n');
 }
 // Builds a descriptive CSV name in Month-Year-Agent order. 'all' selections
@@ -3343,26 +3367,26 @@ function claimsTableRows(rows, { newestFirst = false } = {}) {
   const total = logged.reduce((s, r) => s + r.claims, 0);
   const best = logged.reduce((max, r) => Math.max(max, r.claims), 0);
   const showLoggedAt = visible.some((r) => r.loggedAt);
-  const showTotal = visible.some((r) => r.totalClaims != null);
   const bodyHtml = visible.map((r) => {
     const { dow, date } = fmtDayParts(r.date);
     const value = r.excused ? excusedPillHtml(r.excused)
       : r.invalid ? invalidPillHtml(r.invalid)
       : !r.logged ? '<span class="not-logged">Not logged</span>'
       : r.absent ? '<span class="abs-pill" title="Unplanned absence, counts as 0">ABS</span>'
-      : fmtNum(r.claims);
+      : r.combined && r.totalClaims != null
+        ? `${fmtNum(r.claims)}<small class="dc-split">${fmtNum(r.processed)} + ${fmtNum(r.totalClaims)}</small>`
+        : fmtNum(r.claims);
     return `
       <tr class="${r.logged && r.claims === best && best > 0 ? 'dc-best' : ''}">
         <td><span class="dc-dow">${dow}</span>${date}</td>
         <td class="num mono">${value}</td>
-        ${showTotal ? `<td class="num mono dc-total">${r.totalClaims != null && !r.excused ? fmtNum(r.totalClaims) : '—'}</td>` : ''}
         ${showLoggedAt ? `<td class="dc-logged-at">${fmtLoggedAt(r.loggedAt)}</td>` : ''}
       </tr>`;
   }).join('');
-  const headHtml = `<tr><th>Date</th><th class="num">Claims</th>${showTotal ? '<th class="num dc-total">Total claims</th>' : ''}${showLoggedAt ? '<th class="dc-logged-at-h">Logged at</th>' : ''}</tr>`;
+  const headHtml = `<tr><th>Date</th><th class="num">Claims</th>${showLoggedAt ? '<th class="dc-logged-at-h">Logged at</th>' : ''}</tr>`;
   const vlCount = visible.filter((r) => r.excused === 'VL').length;
   const chCount = visible.filter((r) => r.excused === 'CH').length;
-  return { bodyHtml, headHtml, cols: 2 + (showTotal ? 1 : 0) + (showLoggedAt ? 1 : 0), loggedCount: logged.length, vlCount, chCount, total, hasBest: best > 0 };
+  return { bodyHtml, headHtml, cols: showLoggedAt ? 3 : 2, loggedCount: logged.length, vlCount, chCount, total, hasBest: best > 0 };
 }
 function excusedPillHtml(code) {
   return `<span class="excused-pill ${code.toLowerCase()}" title="${EXCUSED_CODES[code]}, not counted in Avg Claims / Day">${code}</span>`;
@@ -3714,6 +3738,13 @@ function clientReportToCsv(list, totals) {
   return lines.join('\n');
 }
 
+// "980 claims + 167 total claims" under a claims figure, once the period
+// includes days where the two are added together. Client-report figures
+// come from another tab and don't split this way, so they get nothing.
+function claimsSplitSubtext(processed, extra) {
+  return `${fmtNum(processed)} claims + ${fmtNum(extra)} total claims`;
+}
+
 // "1,147 ÷ 19 work days" plus what was left out, so the average can be
 // checked against the sheet line by line.
 function avgMathSubtext(s) {
@@ -3948,7 +3979,7 @@ function renderKpiCards(me, filters) {
   const cards = [
     { html: heroHtml },
     deficit ? { ...deficitCardFields(deficit, stretchDeficit) } : { icon: ICONS.trending, label: 'Pace vs Target', value: '—', sub: 'Pick a single month', accent: 'primary' },
-    { icon: ICONS.calendarRange, label: filters && filters.month === 'all' ? 'Claims This Period' : 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), accent: 'primary', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
+    { icon: ICONS.calendarRange, label: filters && filters.month === 'all' ? 'Claims This Period' : 'Month-to-Date Claims', value: fmtNum(me.mtdClaims), sub: me.hasCombined && !client ? claimsSplitSubtext(me.mtdProcessed, me.mtdExtra) : '', accent: 'primary', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.calendarCheck, label: 'Attendance', value: fmtPct(me.attendancePct), accent: 'primary', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
   ];
   document.getElementById('kpi-grid').innerHTML = kpiCardsHtml(cards);
@@ -3960,6 +3991,9 @@ function renderTeamKpiCards(summaries, filters) {
   const mount = document.getElementById('kpi-grid');
   if (!summaries.length) { mount.innerHTML = ''; return; }
   const mtdClaims = summaries.reduce((s, a) => s + a.mtdClaims, 0);
+  const teamProcessed = summaries.reduce((s, a) => s + (a.mtdProcessed || 0), 0);
+  const teamExtra = summaries.reduce((s, a) => s + (a.mtdExtra || 0), 0);
+  const teamHasCombined = summaries.some((a) => a.hasCombined);
   const avgClaimsPerDay = summaries.reduce((s, a) => s + a.avgClaimsPerDay, 0) / summaries.length;
   const attendancePct = summaries.reduce((s, a) => s + a.attendancePct, 0) / summaries.length;
 
@@ -4006,7 +4040,7 @@ function renderTeamKpiCards(summaries, filters) {
     deficit
       ? { ...deficitCardFields(deficit, stretchDeficit), label: 'Team Pace vs Target' }
       : { icon: ICONS.trending, label: 'Team Pace vs Target', value: '—', sub: 'Pick a single month', accent: 'primary' },
-    { icon: ICONS.calendarRange, label: filters && filters.month === 'all' ? 'Team Claims This Period' : 'Team Month-to-Date', value: fmtNum(mtdClaims), accent: 'primary', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
+    { icon: ICONS.calendarRange, label: filters && filters.month === 'all' ? 'Team Claims This Period' : 'Team Month-to-Date', value: fmtNum(mtdClaims), sub: teamHasCombined && !client ? claimsSplitSubtext(teamProcessed, teamExtra) : '', accent: 'primary', trendHtml: trend ? trendHtml(trend.mtdClaimsTrend, trend.prevMonthLabel) : '' },
     { icon: ICONS.calendarCheck, label: 'Team Attendance', value: fmtPct(attendancePct), accent: 'primary', trendHtml: trend ? trendHtml(trend.attendanceTrend, trend.prevMonthLabel) : '' },
   ];
   mount.innerHTML = kpiCardsHtml(cards);
@@ -4804,10 +4838,13 @@ function renderLogClaims() {
     } else if (existing && existing.absent) {
       absentInput.checked = true;
       note.textContent = 'Currently logged as Absent (ABS). Saving will replace it.';
-    } else if (existing && existing.claims > 0) {
+    } else if (existing && existing.logged && existing.processed > 0) {
       absentInput.checked = false;
-      claimsInput.value = existing.claims;
-      note.textContent = `Currently logged for this date: ${existing.claims}${existing.totalClaims != null ? ' of ' + existing.totalClaims + ' total' : ''}. Saving will replace it.`;
+      claimsInput.value = existing.processed;
+      const parts = existing.totalClaims != null
+        ? `${existing.processed} claims + ${existing.totalClaims} total claims${existing.combined ? ` = ${existing.claims}` : ''}`
+        : `${existing.processed}`;
+      note.textContent = `Currently logged for this date: ${parts}. Saving will replace it.`;
     } else {
       absentInput.checked = false;
       claimsInput.value = '';
@@ -4869,8 +4906,8 @@ function renderLogClaims() {
         // immediately, without waiting for the next poll. A submitted value
         // (including an absent 0) is always "logged".
         const existing = state.claims.find((c) => c.agent === agent && c.date === dateStr);
-        if (existing) { existing.claims = claimsVal; existing.totalClaims = totalVal; existing.logged = true; existing.absent = absent; existing.excused = null; existing.invalid = null; existing.loggedAt = new Date(); }
-        else state.claims.push({ year, month, day, date: dateStr, agent, claims: claimsVal, totalClaims: totalVal, logged: true, absent, excused: null, invalid: null, loggedAt: new Date() });
+        if (existing) { Object.assign(existing, { processed: claimsVal, totalClaims: totalVal, logged: true, absent, excused: null, invalid: null, loggedAt: new Date() }); applyCombinedClaims(existing); }
+        else state.claims.push(applyCombinedClaims({ year, month, day, date: dateStr, agent, processed: claimsVal, claims: claimsVal, totalClaims: totalVal, logged: true, absent, excused: null, invalid: null, loggedAt: new Date() }));
 
         const savedAt = new Date().toLocaleTimeString([], { timeZone: APP_TIME_ZONE });
         const forWhom = isManager ? ' for ' + agent : '';
