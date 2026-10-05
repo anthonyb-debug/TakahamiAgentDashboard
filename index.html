@@ -570,6 +570,8 @@
   details.log-details { font-size: .8rem; background: rgb(var(--primary) / .06); border: 1px solid rgb(var(--primary) / .16); border-radius: .65rem; padding: .55rem .75rem; margin: 0 0 1rem; }
   details.log-details summary { cursor: pointer; font-weight: 600; color: rgb(var(--primary)); }
   details.log-details p { margin: .5rem 0 0; color: rgb(var(--ink)); line-height: 1.5; }
+  .field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+  .field-pair .field { min-width: 0; }
   .check-label { display: flex; align-items: center; gap: .5rem; font-size: .82rem; color: rgb(var(--ink)); margin: .6rem 0 0; cursor: pointer; font-weight: 500; }
   .missing-chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 1rem; }
   .missing-chips-label { font-size: .78rem; color: rgb(var(--muted)); width: 100%; }
@@ -856,7 +858,8 @@
   .dc-head { align-items: flex-end; margin-bottom: .9rem; }
   table.claims-table th:first-child, table.claims-table td:first-child { width: 10rem; }
   table.claims-table th:nth-child(2), table.claims-table td:nth-child(2) { width: 6rem; text-align: right; }
-  table.claims-table th:nth-child(3), table.claims-table td:nth-child(3) { padding-left: 2rem; }
+  table.claims-table th.dc-total, table.claims-table td.dc-total { width: 7rem; text-align: right; }
+  table.claims-table th.dc-logged-at-h, table.claims-table td.dc-logged-at { padding-left: 2rem; }
   .log-layout { gap: 1.25rem; }
   /* Side by side only when there's real room: 860-1023px (no sidebar yet)
      and from 1280px (sidebar + enough content width); stacked in between. */
@@ -1115,8 +1118,16 @@
                 <p id="log-date-zone-note" style="font-size:.74rem; color:rgb(var(--muted)); margin:.3rem 0 0;"></p>
               </div>
               <div class="field">
-                <label for="log-claims-input">Claims processed</label>
-                <input type="number" id="log-claims-input" min="0" step="1" inputmode="numeric" placeholder="e.g. 62" style="width:100%;" />
+                <div class="field-pair">
+                  <div class="field">
+                    <label for="log-claims-input">Claims processed</label>
+                    <input type="number" id="log-claims-input" min="0" step="1" inputmode="numeric" placeholder="e.g. 62" style="width:100%;" />
+                  </div>
+                  <div class="field">
+                    <label for="log-total-input">Total claims</label>
+                    <input type="number" id="log-total-input" min="0" step="1" inputmode="numeric" placeholder="e.g. 80" style="width:100%;" />
+                  </div>
+                </div>
                 <label for="log-absent-input" class="check-label">
                   <input type="checkbox" id="log-absent-input" style="width:auto; margin:0;" />
                   Mark as absent (ABS), logs 0 for this day
@@ -1216,7 +1227,7 @@ const CONFIG = {
 
   // An entry saved more than this many calendar days after its date is
   // listed under "Late edits" for managers (e.g. an old 0 changed to VL).
-  // Needs the Last Updated column (G) to be stamped on every edit.
+  // Needs the Last Updated column (H) to be stamped on every edit.
   LATE_EDIT_DAYS: 3,
 
   // How far ahead the "Upcoming leave" card looks, in calendar days.
@@ -1800,7 +1811,7 @@ function buildPreviewStore() {
   const upcomingVl = new Set();
   const cur = todayCalendar(); let added = 0;
   while (added < 3) { cur.setUTCDate(cur.getUTCDate() + 1); const dow = cur.getUTCDay(); if (dow !== 0 && dow !== 6) { if (added > 0) upcomingVl.add(isoFromCalendar(cur)); added++; } }
-  const prod = [['Year', 'Month', 'Day', 'Date', 'Agent', 'Claims', 'Last Updated', 'Updated By']];
+  const prod = [['Year', 'Month', 'Day', 'Date', 'Agent', 'Claims', 'Total Claims', 'Last Updated', 'Updated By']];
   const monthTotals = new Map();
   for (const d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
     const dow = d.getUTCDay();
@@ -1819,17 +1830,18 @@ function buildPreviewStore() {
       }
       const mk = `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}|${agent}`;
       if (/^\d+$/.test(v)) monthTotals.set(mk, (monthTotals.get(mk) || 0) + Number(v));
-      prod.push([String(d.getUTCFullYear()), MONTH_NAMES[d.getUTCMonth()], DAYS[dow], fmtDate(d), agent, v, v ? stamp(d, 17) : '', v ? 'lead@preview.local' : '']);
+      const tot = /^\d+$/.test(v) && Number(v) > 0 ? String(Number(v) + Math.round(rnd() * 15)) : '';
+      prod.push([String(d.getUTCFullYear()), MONTH_NAMES[d.getUTCMonth()], DAYS[dow], fmtDate(d), agent, v, tot, v ? stamp(d, 17) : '', v ? 'lead@preview.local' : '']);
     });
   }
   // A few realistic problems so every warning in the app can be seen.
   const pastRows = prod.slice(1).filter((r) => r[5] && toIsoDate(r[3]) < todayIso && /^\d+$/.test(r[5]));
   const thisMonth = pastRows.filter((r) => toMonthNumber(r[1]) === now.month);
   if (thisMonth.length > 12) {
-    const dup = thisMonth[3]; prod.push([...dup.slice(0, 5), '40', dup[6], dup[7]]);   // duplicate row
+    const dup = thisMonth[3]; prod.push([...dup.slice(0, 5), '40', '', dup[7], dup[8]]);   // duplicate row
     thisMonth[8][5] = 'off';                                                            // unrecognized cell
     const late = thisMonth[10]; late[5] = 'VL';                                          // late VL edit
-    const lateAt = todayCalendar(); lateAt.setUTCDate(lateAt.getUTCDate() - 1); late[6] = stamp(lateAt, 10);
+    const lateAt = todayCalendar(); lateAt.setUTCDate(lateAt.getUTCDate() - 1); late[7] = stamp(lateAt, 10);
   }
   const att = [['Year', 'Month', 'Agent', 'Attendance']];
   const con = [['Year', '', 'Month', 'Agent', '', '', '', '', 'Legacy Facility', 'Outside Facility', 'Total Claims']];
@@ -1858,16 +1870,17 @@ function previewSheetText(sheetName) {
   throw new Error(`${sheetName} isn't part of the preview sample data`);
 }
 // Log Claims in preview: update the sample row in memory, like the Apps Script would.
-function previewWriteClaims(year, month, day, agent, claims, email) {
+function previewWriteClaims(year, month, day, agent, claims, totalClaims, email) {
   if (!previewStore) previewStore = buildPreviewStore();
   const date = `${month}/${day}/${year}`;
   const now = new Date();
   const at = `${now.getMonth() + 1}/${now.getDate()}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:00`;
   const row = previewStore.prod.find((r) => r[4] === agent && r[3] === date);
-  if (row) { row[5] = String(claims); row[6] = at; row[7] = email; }
+  const tot = totalClaims === '' || totalClaims == null ? '' : String(totalClaims);
+  if (row) { row[5] = String(claims); row[6] = tot; row[7] = at; row[8] = email; }
   else {
     const d = calendarDate(year, month, day);
-    previewStore.prod.push([String(year), MONTH_NAMES[month - 1], ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getUTCDay()], date, agent, String(claims), at, email]);
+    previewStore.prod.push([String(year), MONTH_NAMES[month - 1], ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getUTCDay()], date, agent, String(claims), tot, at, email]);
   }
   return { ok: true };
 }
@@ -1949,7 +1962,7 @@ function toIsoDate(v) {
   return `${m[3]}-${month}-${day}`;
 }
 
-// The "Last Updated" column (G) only exists for entries saved through the
+// The "Last Updated" column (H) only exists for entries saved through the
 // Log Claims form after the audit-trail feature was added — older rows,
 // or ones edited directly in the sheet, won't have it. Google's export
 // format for a datetime cell can vary, so this tries a real Date parse
@@ -2001,12 +2014,18 @@ function isHandledEntry(c) { return c.logged || !!c.excused; }
 // own banner, so it isn't reported a second time as missing.
 function isRemindedEntry(c) { return isHandledEntry(c) || !!c.invalid; }
 
+// Column G (Total Claims): a whole number, or null when blank/unreadable.
+function parseTotalCell(raw) {
+  const t = String(raw ?? '').trim().replace(/,/g, '');
+  return /^\d+$/.test(t) ? Number(t) : null;
+}
+
 async function fetchClaims() {
   const text = await fetchSheetText(CONFIG.CLAIMS_SHEET_NAME, 'Claims');
   lastRawCsv.claims = text;
   const rows = parseCsv(text);
-  // Row 0 is the header (Year, Month, Day, Date, Agent, Claims, Last
-  // Updated, Updated By) — skip it. Note: column C ("Day") in the real
+  // Row 0 is the header (Year, Month, Day, Date, Agent, Claims, Total
+  // Claims, Last Updated, Updated By) — skip it. Note: column C ("Day") in the real
   // sheet is a day-of-week name ("Thursday"), not a day-of-month number,
   // so the day number is derived from the parsed Date column instead of
   // read from column C directly.
@@ -2023,8 +2042,9 @@ async function fetchClaims() {
         year: toNum(r[0]), month: toMonthNumber(r[1]), day: dayOfMonth,
         date: isoDate, agent: String(r[4]).trim(),
         ...entry,
-        loggedAt: parseLoggedAt(r[6]),
-        updatedBy: String(r[7] ?? '').trim(),
+        totalClaims: parseTotalCell(r[6]),          // G — Total Claims
+        loggedAt: parseLoggedAt(r[7]),              // H — Last Updated
+        updatedBy: String(r[8] ?? '').trim(),       // I — Updated By
       };
     });
 }
@@ -2133,8 +2153,8 @@ async function fetchTargets() {
    Claims cell — it does not create duplicate rows for a day that already
    has a (possibly blank) row, which matches how the sheet is laid out.
    ========================================================================== */
-async function writeClaimsToSheet(year, month, day, agent, claims, idToken) {
-  if (PREVIEW_MODE) return previewWriteClaims(year, month, day, agent, claims, (state.identity && state.identity.email) || 'preview');
+async function writeClaimsToSheet(year, month, day, agent, claims, totalClaims, idToken) {
+  if (PREVIEW_MODE) return previewWriteClaims(year, month, day, agent, claims, totalClaims, (state.identity && state.identity.email) || 'preview');
   if (!CONFIG.APPS_SCRIPT_URL) {
     throw new Error('APPS_SCRIPT_URL is not configured yet — see README.md.');
   }
@@ -2144,6 +2164,7 @@ async function writeClaimsToSheet(year, month, day, agent, claims, idToken) {
     + '&day=' + encodeURIComponent(day)
     + '&agent=' + encodeURIComponent(agent)
     + '&claims=' + encodeURIComponent(claims)
+    + '&totalClaims=' + encodeURIComponent(totalClaims == null ? '' : totalClaims)
     + '&idToken=' + encodeURIComponent(idToken || '');
 
   try {
@@ -2183,13 +2204,13 @@ async function writeClaimsToSheet(year, month, day, agent, claims, idToken) {
 // Google's CSV export lags a write by a second or two, hence the retries.
 // Returns 'confirmed', 'mismatch' (row exists with a different value) or
 // 'unconfirmed' (couldn't read it back in time — not proof of failure).
-async function verifyClaimsWrite(agent, dateStr, expectedClaims, attempts = 3, delayMs = 1600) {
+async function verifyClaimsWrite(agent, dateStr, expectedClaims, expectedTotal = null, attempts = 3, delayMs = 1600) {
   for (let i = 0; i < attempts; i++) {
     await new Promise((r) => setTimeout(r, delayMs));
     try {
       const claims = await fetchClaims();
       const row = claims.find((c) => c.agent === agent && c.date === dateStr);
-      if (row && row.logged && row.claims === expectedClaims) {
+      if (row && row.logged && row.claims === expectedClaims && (row.totalClaims ?? null) === expectedTotal) {
         // Adopt the verified read wholesale — it's fresher than local state.
         state.claims = claims;
         return 'confirmed';
@@ -3322,6 +3343,7 @@ function claimsTableRows(rows, { newestFirst = false } = {}) {
   const total = logged.reduce((s, r) => s + r.claims, 0);
   const best = logged.reduce((max, r) => Math.max(max, r.claims), 0);
   const showLoggedAt = visible.some((r) => r.loggedAt);
+  const showTotal = visible.some((r) => r.totalClaims != null);
   const bodyHtml = visible.map((r) => {
     const { dow, date } = fmtDayParts(r.date);
     const value = r.excused ? excusedPillHtml(r.excused)
@@ -3333,13 +3355,14 @@ function claimsTableRows(rows, { newestFirst = false } = {}) {
       <tr class="${r.logged && r.claims === best && best > 0 ? 'dc-best' : ''}">
         <td><span class="dc-dow">${dow}</span>${date}</td>
         <td class="num mono">${value}</td>
+        ${showTotal ? `<td class="num mono dc-total">${r.totalClaims != null && !r.excused ? fmtNum(r.totalClaims) : '—'}</td>` : ''}
         ${showLoggedAt ? `<td class="dc-logged-at">${fmtLoggedAt(r.loggedAt)}</td>` : ''}
       </tr>`;
   }).join('');
-  const headHtml = `<tr><th>Date</th><th class="num">Claims</th>${showLoggedAt ? '<th>Logged at</th>' : ''}</tr>`;
+  const headHtml = `<tr><th>Date</th><th class="num">Claims</th>${showTotal ? '<th class="num dc-total">Total claims</th>' : ''}${showLoggedAt ? '<th class="dc-logged-at-h">Logged at</th>' : ''}</tr>`;
   const vlCount = visible.filter((r) => r.excused === 'VL').length;
   const chCount = visible.filter((r) => r.excused === 'CH').length;
-  return { bodyHtml, headHtml, cols: showLoggedAt ? 3 : 2, loggedCount: logged.length, vlCount, chCount, total, hasBest: best > 0 };
+  return { bodyHtml, headHtml, cols: 2 + (showTotal ? 1 : 0) + (showLoggedAt ? 1 : 0), loggedCount: logged.length, vlCount, chCount, total, hasBest: best > 0 };
 }
 function excusedPillHtml(code) {
   return `<span class="excused-pill ${code.toLowerCase()}" title="${EXCUSED_CODES[code]}, not counted in Avg Claims / Day">${code}</span>`;
@@ -4686,6 +4709,7 @@ function renderHistory() {
 function renderLogClaims() {
   const dateInput = document.getElementById('log-date-input');
   const claimsInput = document.getElementById('log-claims-input');
+  const totalInput = document.getElementById('log-total-input');
   const absentInput = document.getElementById('log-absent-input');
   const statusEl = document.getElementById('log-status');
   const submitBtn = document.getElementById('log-submit-btn');
@@ -4752,7 +4776,8 @@ function renderLogClaims() {
   // 0), so grey it out to make the intent clear.
   function syncAbsentUI() {
     claimsInput.disabled = absentInput.checked;
-    if (absentInput.checked) claimsInput.value = '';
+    totalInput.disabled = absentInput.checked;
+    if (absentInput.checked) { claimsInput.value = ''; totalInput.value = ''; }
   }
   absentInput.onchange = syncAbsentUI;
 
@@ -4764,6 +4789,7 @@ function renderLogClaims() {
 
     const existing = state.claims.find((c) => c.agent === agent && c.date === dateStr);
     note.style.color = cssVarColor('--muted');
+    totalInput.value = existing && existing.totalClaims != null ? existing.totalClaims : '';
     if (existing && existing.invalid) {
       absentInput.checked = false;
       claimsInput.value = '';
@@ -4781,7 +4807,7 @@ function renderLogClaims() {
     } else if (existing && existing.claims > 0) {
       absentInput.checked = false;
       claimsInput.value = existing.claims;
-      note.textContent = `Currently logged for this date: ${existing.claims}. Saving will replace it.`;
+      note.textContent = `Currently logged for this date: ${existing.claims}${existing.totalClaims != null ? ' of ' + existing.totalClaims + ' total' : ''}. Saving will replace it.`;
     } else {
       absentInput.checked = false;
       claimsInput.value = '';
@@ -4804,10 +4830,13 @@ function renderLogClaims() {
     const dateStr = dateInput.value;
     const absent = absentInput.checked;
     const claimsVal = absent ? 0 : parseInt(claimsInput.value, 10);
+    const totalRaw = absent ? '' : totalInput.value.trim();
+    const totalVal = totalRaw === '' ? null : parseInt(totalRaw, 10);
     const agent = isManager ? agentSelect.value : state.identity.name;
     if (!dateStr) { statusEl.textContent = 'Pick a date first.'; statusEl.style.color = cssVarColor('--warm'); return; }
     if (isManager && !agent) { statusEl.textContent = 'Choose who you\'re logging for.'; statusEl.style.color = cssVarColor('--warm'); return; }
     if (!absent && (isNaN(claimsVal) || claimsVal < 0)) { statusEl.textContent = 'Enter a valid number of claims, or tick "Mark as absent".'; statusEl.style.color = cssVarColor('--warm'); return; }
+    if (totalVal !== null && (isNaN(totalVal) || totalVal < 0)) { statusEl.textContent = 'Enter a valid number for Total claims, or leave it blank.'; statusEl.style.color = cssVarColor('--warm'); return; }
 
     // Read the Y/M/D straight out of the ISO string the date input gives us.
     // Round-tripping through a Date parsed at local midnight worked, but only
@@ -4834,14 +4863,14 @@ function renderLogClaims() {
       }
 
       try {
-        await writeClaimsToSheet(year, month, day, agent, claimsVal, state.identity.idToken);
+        await writeClaimsToSheet(year, month, day, agent, claimsVal, totalVal, state.identity.idToken);
 
         // Optimistically reflect the change locally so the dashboard updates
         // immediately, without waiting for the next poll. A submitted value
         // (including an absent 0) is always "logged".
         const existing = state.claims.find((c) => c.agent === agent && c.date === dateStr);
-        if (existing) { existing.claims = claimsVal; existing.logged = true; existing.absent = absent; existing.excused = null; existing.invalid = null; existing.loggedAt = new Date(); }
-        else state.claims.push({ year, month, day, date: dateStr, agent, claims: claimsVal, logged: true, absent, excused: null, invalid: null, loggedAt: new Date() });
+        if (existing) { existing.claims = claimsVal; existing.totalClaims = totalVal; existing.logged = true; existing.absent = absent; existing.excused = null; existing.invalid = null; existing.loggedAt = new Date(); }
+        else state.claims.push({ year, month, day, date: dateStr, agent, claims: claimsVal, totalClaims: totalVal, logged: true, absent, excused: null, invalid: null, loggedAt: new Date() });
 
         const savedAt = new Date().toLocaleTimeString([], { timeZone: APP_TIME_ZONE });
         const forWhom = isManager ? ' for ' + agent : '';
@@ -4851,7 +4880,7 @@ function renderLogClaims() {
         updateLogCurrentValueNote();
 
         // Don't claim success until the sheet actually shows the value.
-        const verdict = await verifyClaimsWrite(agent, dateStr, claimsVal);
+        const verdict = await verifyClaimsWrite(agent, dateStr, claimsVal, totalVal);
         if (verdict === 'confirmed') {
           statusEl.style.color = cssVarColor('--accent');
           statusEl.textContent = (absent ? 'Saved as Absent ' : 'Saved ') + savedAt + forWhom + (PREVIEW_MODE ? ' in the preview data (not your real sheet).' : (isManager ? ' — confirmed in the sheet.' : ' and confirmed.'));
