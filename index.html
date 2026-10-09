@@ -1614,6 +1614,7 @@ function computeTeamDeficitForTier(claims, summaries, year, month, tierLevel) {
 }
 function calculateKpi(agentName, avgClaimsPerDay) {
   const tiers = getTiersForAgent(agentName);
+  // Averages are shown and scored as whole numbers: 189.5 and up is 190.
   const rounded = Math.round(avgClaimsPerDay);
   let matched = null;
   for (const t of tiers) {
@@ -1627,7 +1628,8 @@ function calculateKpi(agentName, avgClaimsPerDay) {
     tierLabel: matched ? ('KPI ' + matched.level) : 'KPI 1',
     dailyGoal: topTier.min,
     nextTier,
-    avgGapToNextTier: nextTier ? Math.max(nextTier.min - avgClaimsPerDay, 0) : 0,
+    // From the rounded average, the same whole number shown on screen.
+    avgGapToNextTier: nextTier ? Math.max(nextTier.min - rounded, 0) : 0,
   };
 }
 // Shorter version used where the tier level is already the card's main
@@ -3680,7 +3682,7 @@ function renderMonthlyGrid(filters) {
     ? `<td class="mgrid-grand mgrid-pair-start">${fmtNum(procSums.grand)}</td><td class="mgrid-grand">${fmtNum(totSums.grand)}</td>`
     : `<td class="mgrid-grand">${fmtNum((view === 'processed' ? procSums : totSums).grand)}</td>`;
   const workDayCells = agents.map((a) => `<td class="${pairCls.trim()}"${span}>${workDays[a]}</td>`).join('');
-  const avgCells = agents.map((a) => `<td class="${pairCls.trim()}"${span}>${workDays[a] ? fmtNum(avgPerDay[a], 1) : '—'}</td>`).join('');
+  const avgCells = agents.map((a) => `<td class="${pairCls.trim()}"${span}>${workDays[a] ? fmtNum(avgPerDay[a]) : '—'}</td>`).join('');
   const totalWorkDays = agents.reduce((t, a) => t + workDays[a], 0);
   const viewBtn = (id, label) => `<button type="button" data-mgrid-view="${id}" aria-pressed="${view === id}">${label}</button>`;
   const totalsNote = gridData.hasTotals ? '' : ' · no Total claims logged this month';
@@ -3696,7 +3698,7 @@ function renderMonthlyGrid(filters) {
             <input type="checkbox" id="mgrid-heat-toggle" ${heatOn ? 'checked' : ''} style="width:auto; margin:0;"> Heat map
           </label>
           <button class="btn btn-glass btn-sm" id="mgrid-export-btn">${ICONS.download}Export grid</button>
-          <span>${fmtNum(gridData.procSums.grand)} processed &middot; ${fmtNum(gridData.totSums.grand)} total${totalsNote} &middot; team avg ${fmtNum(teamAvg, 1)} / day</span>
+          <span>${fmtNum(gridData.procSums.grand)} processed &middot; ${fmtNum(gridData.totSums.grand)} total${totalsNote} &middot; team avg ${fmtNum(teamAvg)} / day</span>
         </div>
       </div>
       <div class="mgrid-wrap">
@@ -3705,7 +3707,7 @@ function renderMonthlyGrid(filters) {
           <tbody>${bodyRows}</tbody>
           <tfoot>
             <tr class="mgrid-sub"><td class="mgrid-date" title="Days with a number logged (ABS included). VL, CH and blank days are left out.">Work days</td>${workDayCells}<td class="mgrid-total${pairCls}"${span} title="Agent work days, all agents">${totalWorkDays}</td></tr>
-            <tr class="mgrid-sub"><td class="mgrid-date" title="Counted claims ÷ work days. Counted = Total where it applies, otherwise Processed.">Avg / day</td>${avgCells}<td class="mgrid-total${pairCls}"${span} title="Average of each agent's Avg / day">${fmtNum(teamAvg, 1)}</td></tr>
+            <tr class="mgrid-sub"><td class="mgrid-date" title="Counted claims ÷ work days. Counted = Total where it applies, otherwise Processed.">Avg / day</td>${avgCells}<td class="mgrid-total${pairCls}"${span} title="Average of each agent's Avg / day">${fmtNum(teamAvg)}</td></tr>
             <tr><td class="mgrid-date">Grand Total</td>${footCells}${grandCells}</tr>
           </tfoot>
         </table>
@@ -3763,7 +3765,7 @@ function monthlyGridToCsv({ days, agents, matrix, marks, workDays, avgPerDay, te
   const pad = (v) => (both ? [v, ''] : [v]);
   if (workDays) {
     lines.push(['Work days', ...agents.flatMap((a) => pad(workDays[a])), ...pad(agents.reduce((t, a) => t + workDays[a], 0))].map(esc).join(','));
-    lines.push(['Avg / day (counted)', ...agents.flatMap((a) => pad(workDays[a] ? (Math.round(avgPerDay[a] * 10) / 10).toFixed(1) : '')), ...pad((Math.round(teamAvg * 10) / 10).toFixed(1))].map(esc).join(','));
+    lines.push(['Avg / day (counted)', ...agents.flatMap((a) => pad(workDays[a] ? Math.round(avgPerDay[a]) : '')), ...pad(Math.round(teamAvg))].map(esc).join(','));
   }
   lines.push((both
     ? ['Grand Total', ...agents.flatMap((a) => [procSums.col[a], totSums.col[a]]), procSums.grand, totSums.grand]
@@ -3839,7 +3841,7 @@ function renderClientReport(filters) {
       <td class="num">${fmtNum(x.outside)}</td>
       <td class="num cr-total">${fmtNum(x.total)}</td>
       <td class="num">${x.workDays || '—'}</td>
-      <td class="num cr-total">${x.avgPerDay === null ? '—' : fmtNum(x.avgPerDay, 1)}</td>
+      <td class="num cr-total">${x.avgPerDay === null ? '—' : fmtNum(x.avgPerDay)}</td>
       <td class="num">${x.avgPerDay === null ? '—' : tierChipHtml(x.kpi)}</td>
     </tr>`).join('');
 
@@ -3856,7 +3858,7 @@ function renderClientReport(filters) {
         <table class="dc-table">
           <thead><tr><th>Agent</th><th class="num">Legacy Facility</th><th class="num">Outside Facility</th><th class="num">Total Claims</th><th class="num">Work Days</th><th class="num">Avg Claims / Day</th><th class="num">KPI Tier</th></tr></thead>
           <tbody>${bodyRows}</tbody>
-          <tfoot><tr><td>Grand Total</td><td class="num">${fmtNum(totals.legacy)}</td><td class="num">${fmtNum(totals.outside)}</td><td class="num">${fmtNum(totals.total)}</td><td class="num">${totals.workDays}</td><td class="num" title="Average of each agent's Avg / day">${totals.avgPerDay === null ? '—' : fmtNum(totals.avgPerDay, 1)}</td><td></td></tr></tfoot>
+          <tfoot><tr><td>Grand Total</td><td class="num">${fmtNum(totals.legacy)}</td><td class="num">${fmtNum(totals.outside)}</td><td class="num">${fmtNum(totals.total)}</td><td class="num">${totals.workDays}</td><td class="num" title="Average of each agent's Avg / day">${totals.avgPerDay === null ? '—' : fmtNum(totals.avgPerDay)}</td><td></td></tr></tfoot>
         </table>
       </div>
       <p class="card-note">Avg Claims / Day = Total Claims ÷ Work Days, and the KPI Tier is based on that average. ${isManagerView() ? 'Work Days come from the Prod tab: ' : 'Work Days are the days with logged claims: '}ABS counts as a work day; VL, CH and blank days don't. The team figure is the average of each agent's Avg / day.</p>
@@ -3878,7 +3880,7 @@ function clientReportToCsv(list, totals) {
     return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
   };
   const lines = [];
-  const r1 = (n) => (n === null || n === undefined ? '' : (Math.round(n * 10) / 10).toFixed(1));
+  const r1 = (n) => (n === null || n === undefined ? '' : Math.round(n));
   lines.push(['Agent', 'Legacy Facility', 'Outside Facility', 'Total Claims', 'Work Days', 'Avg Claims / Day', 'KPI Tier'].map(esc).join(','));
   list.forEach((x) => lines.push([x.agent, x.legacy, x.outside, x.total, x.workDays || 0, r1(x.avgPerDay), x.avgPerDay === null ? '' : x.kpi.tierLabel].map(esc).join(',')));
   lines.push(['Grand Total', totals.legacy, totals.outside, totals.total, totals.workDays, r1(totals.avgPerDay), ''].map(esc).join(','));
@@ -4115,7 +4117,7 @@ function renderKpiCards(me, filters) {
     </div>
     <div>
       <div class="hero-main">
-        <p class="kpi-value hero-value mono">${fmtNum(me.avgClaimsPerDay, 1)}</p>
+        <p class="kpi-value hero-value mono">${fmtNum(me.avgClaimsPerDay)}</p>
         ${tierChipHtml(me.kpi, !me.countedDays)}
       </div>
       <p class="kpi-sub">${avgMathSubtext(me)}</p>
@@ -4176,7 +4178,7 @@ function renderTeamKpiCards(summaries, filters) {
       <div class="kpi-icon bg-primary" aria-hidden="true">${ICONS.gauge}</div>
     </div>
     <div>
-      <div class="hero-main"><p class="kpi-value hero-value mono">${fmtNum(avgClaimsPerDay, 1)}</p></div>
+      <div class="hero-main"><p class="kpi-value hero-value mono">${fmtNum(avgClaimsPerDay)}</p></div>
       <p class="kpi-sub">Average of each agent's Avg / day · ${summaries.length} agent${summaries.length !== 1 ? 's' : ''}</p>
       ${trend ? trendHtml(trend.avgClaimsTrend, trend.prevMonthLabel) : ''}
       ${tierMix ? `<div class="hero-tiers">${tierMix}</div>` : ''}
@@ -4395,13 +4397,13 @@ function monthSummaryHtml(year, month) {
     <tr>
       <td>${esc(s.agent)}</td>
       <td class="n">${s.countedDays}</td><td class="n">${s.absDays}</td><td class="n">${s.vlDays}</td><td class="n">${s.chDays}</td>
-      <td class="n">${fmtNum(s.mtdClaims)}</td><td class="n b">${fmtNum(s.avgClaimsPerDay, 1)}</td>
+      <td class="n">${fmtNum(s.mtdClaims)}</td><td class="n b">${fmtNum(s.avgClaimsPerDay)}</td>
       <td class="n">${s.countedDays ? s.kpi.tierLabel : '—'}</td><td class="n">${fmtPct(s.attendancePct)}</td>
     </tr>`).join('');
   const tot = rows.reduce((t, s) => ({ days: t.days + s.countedDays, abs: t.abs + s.absDays, vl: t.vl + s.vlDays, ch: t.ch + s.chDays, claims: t.claims + s.mtdClaims }), { days: 0, abs: 0, vl: 0, ch: 0, claims: 0 });
   const foot = isManager && rows.length > 1 ? `
     <tfoot><tr><td>Team</td><td class="n">${tot.days}</td><td class="n">${tot.abs}</td><td class="n">${tot.vl}</td><td class="n">${tot.ch}</td>
-      <td class="n">${fmtNum(tot.claims)}</td><td class="n b">${fmtNum(rows.reduce((t, s) => t + s.avgClaimsPerDay, 0) / rows.length, 1)}</td><td></td><td></td></tr></tfoot>` : '';
+      <td class="n">${fmtNum(tot.claims)}</td><td class="n b">${fmtNum(rows.reduce((t, s) => t + s.avgClaimsPerDay, 0) / rows.length)}</td><td></td><td></td></tr></tfoot>` : '';
   const generated = new Date().toLocaleString('en-US', { timeZone: APP_TIME_ZONE, dateStyle: 'medium', timeStyle: 'short' });
   const dupCount = findDuplicateEntries(me).filter((g) => g[0].year === year && g[0].month === month).length;
   const badCount = state.claims.filter((c) => c.invalid && c.year === year && c.month === month && (!me || c.agent === me)).length;
@@ -4536,7 +4538,7 @@ function renderLeaderboard(summaries, mountId, filters) {
           <span title="${leaderboardTitle(s)}">${leaderboardFigures(s)}</span>
           <div class="lb-bar" aria-hidden="true"><span style="width:${pct.toFixed(1)}%"></span></div>
         </div>
-        <div class="lb-stats"><p class="val mono" title="Avg claims / day">${fmtNum(s.avgClaimsPerDay, 1)}</p>${tierChipHtml(s.kpi, !s.countedDays)}</div>
+        <div class="lb-stats"><p class="val mono" title="Avg claims / day">${fmtNum(s.avgClaimsPerDay)}</p>${tierChipHtml(s.kpi, !s.countedDays)}</div>
       </div>`;
   }).join('');
   mount.innerHTML = `
@@ -4548,8 +4550,8 @@ function renderLeaderboard(summaries, mountId, filters) {
 function renderInsights(insights, mountId) {
   const items = [
     { icon: ICONS.trophy, label: 'Highest Claims Day', value: insights.highestClaimsDay ? `${fmtNum(insights.highestClaimsDay.claims)} on ${fmtAxisDate(insights.highestClaimsDay.date)}` : '—' },
-    { icon: ICONS.gauge, label: 'Avg Daily Productivity', value: fmtNum(insights.avgDailyProductivity, 1) },
-    { icon: ICONS.lineChart, label: 'Best Performing Week', value: insights.bestPerformingWeek ? `${insights.bestPerformingWeek.weekLabel} (${fmtNum(insights.bestPerformingWeek.avgPerDay, 1)}/day)` : '—' },
+    { icon: ICONS.gauge, label: 'Avg Daily Productivity', value: fmtNum(insights.avgDailyProductivity) },
+    { icon: ICONS.lineChart, label: 'Best Performing Week', value: insights.bestPerformingWeek ? `${insights.bestPerformingWeek.weekLabel} (${fmtNum(insights.bestPerformingWeek.avgPerDay)}/day)` : '—' },
     { icon: ICONS.trending, label: 'Monthly Growth (per day)', value: insights.monthlyGrowthPct !== null ? (insights.monthlyGrowthPct > 0 ? '+' : '') + insights.monthlyGrowthPct.toFixed(1) + '%' : 'Needs 2+ months' },
     { icon: ICONS.calendarCheck, label: 'Attendance Rate', value: fmtPct(insights.attendanceRate) },
     { icon: ICONS.activity, label: 'Consistency Score', value: insights.consistencyScore + ' / 100' },
@@ -4610,7 +4612,7 @@ function renderLineChart(canvasId, data, xKey, yKey, colorVar, filled, maxY) {
   const shown = values.filter((v) => v !== null && v !== undefined);
   const hasAbsent = absentFlags.some(Boolean);
   const summary = shown.length
-    ? `${shown.length} days from ${labels[0]} to ${labels[labels.length - 1]}; low ${fmtNum(Math.min(...shown), 1)}, high ${fmtNum(Math.max(...shown), 1)}.${hasAbsent ? ' Absent days are marked.' : ''}`
+    ? `${shown.length} days from ${labels[0]} to ${labels[labels.length - 1]}; low ${fmtNum(Math.min(...shown))}, high ${fmtNum(Math.max(...shown))}.${hasAbsent ? ' Absent days are marked.' : ''}`
     : 'No data for this period.';
 
   const existing = state.charts[canvasId];
@@ -4658,7 +4660,7 @@ function renderLineChart(canvasId, data, xKey, yKey, colorVar, filled, maxY) {
           callbacks: {
             label: (c) => {
               if (c.chart.$absent && c.chart.$absent[c.dataIndex]) return ' Absent (ABS)';
-              return ' ' + fmtNum(c.parsed.y, yKey === 'average' ? 1 : 0) + (yKey === 'claims' ? ' counted' : '');
+              return ' ' + fmtNum(c.parsed.y) + (yKey === 'claims' ? ' counted' : '');
             },
             // Name both logged figures under the counted one.
             afterLabel: (c) => {
@@ -4888,9 +4890,9 @@ function renderHistory() {
   ] : [];
   document.getElementById('hist-avg-note').textContent = single ? 'Dashed lines mark the KPI 4 and KPI 5 thresholds.' : 'Pick an agent to see their KPI thresholds.';
   renderMonthlyRefChart('hist-chart-monthly-avg', {
-    labels, values: rows.map((r) => (r.avg === null ? null : Number(r.avg.toFixed(1)))), decimals: 1, refLines, yMin: 0,
+    labels, values: rows.map((r) => (r.avg === null ? null : Math.round(r.avg))), decimals: 0, refLines, yMin: 0,
     colors: rows.map((r) => cssVarColor('--primary', anySel && !isSel(r) ? 0.4 : 1)),
-    summary: rows.map((r) => `${r.label}: ${r.avg === null ? 'no data' : fmtNum(r.avg, 1)}`).join(', '),
+    summary: rows.map((r) => `${r.label}: ${r.avg === null ? 'no data' : fmtNum(r.avg)}`).join(', '),
   });
 
   // Attendance: honest 0–100 scale, green at/above target, amber below.
@@ -4909,7 +4911,7 @@ function renderHistory() {
       <td>${r.label}</td>
       <td class="num mono">${fmtNum(r.days)}</td>
       <td class="num mono">${fmtNum(r.total)}</td>
-      <td class="num mono">${r.avg === null ? '—' : fmtNum(r.avg, 1)}</td>
+      <td class="num mono">${r.avg === null ? '—' : fmtNum(r.avg)}</td>
       <td class="num mono">${r.attendance === null ? '—' : fmtPct(r.attendance)}</td>
       ${single ? `<td class="num">${r.avg === null ? '—' : calculateKpi(filters.agent, r.avg).tierLabel}</td>` : ''}
     </tr>`).join('');
@@ -5382,7 +5384,7 @@ function renderLogSide(agent, f) {
     <section class="glass card side-card">
       <div class="lb-head"><h3>${who} ${escHtml(MONTH_NAMES[f.month - 1])}</h3><span>Month at a glance</span></div>
       <div class="side-hero">
-        <span class="side-avg mono">${s.countedDays ? fmtNum(s.avgClaimsPerDay, 1) : '—'}</span>
+        <span class="side-avg mono">${s.countedDays ? fmtNum(s.avgClaimsPerDay) : '—'}</span>
         ${tierChipHtml(s.kpi, !s.countedDays)}
       </div>
       <p class="side-sub">claims per work day · ${avgMathSubtext(s)}</p>
@@ -5434,7 +5436,7 @@ function renderProfile() {
     const streak = computeKpiStreak(state.claims, me.agent);
     const stats = [
       { label: `Claims in ${currentMonthLabel}`, value: fmtNum(me.mtdClaims) },
-      { label: `Avg Claims / Day (${currentMonthLabel.slice(0, 3)})`, value: fmtNum(me.avgClaimsPerDay, 1) },
+      { label: `Avg Claims / Day (${currentMonthLabel.slice(0, 3)})`, value: fmtNum(me.avgClaimsPerDay) },
       { label: `Attendance (${currentMonthLabel.slice(0, 3)})`, value: fmtPct(me.attendancePct) },
       { label: 'Current KPI', value: me.kpi.level || '—' },
       { label: 'To Next Tier', value: me.kpi.nextTier ? `+${Math.ceil(me.kpi.avgGapToNextTier)} avg/day` : 'Top tier' },
