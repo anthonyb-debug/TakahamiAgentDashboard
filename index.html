@@ -414,6 +414,18 @@
   table.mgrid tbody tr.mgrid-week-start td { border-top: 2px solid rgb(var(--border)); }
   table.mgrid thead th { text-transform: none; letter-spacing: 0; }
   table.mgrid td.mgrid-cell[data-heat] { background: rgb(var(--primary) / var(--heat, 0)); }
+  /* Split view: each agent gets a Processed and a Total sub-column. */
+  table.mgrid thead tr.mgrid-subhead th { top: var(--mgrid-head-h, 1.9rem); font-weight: 500; color: rgb(var(--muted)); font-size: .66rem; }
+  table.mgrid thead th.mgrid-agent { text-align: center; border-bottom: 0; }
+  table.mgrid .mgrid-pair-start { border-left: 1px solid rgb(var(--border) / .6); }
+  .mgrid-view { display: inline-flex; border: 1px solid rgb(var(--border)); border-radius: .55rem; overflow: hidden; }
+  .mgrid-view button { border: 0; background: transparent; color: rgb(var(--muted)); font: inherit; font-size: .74rem; padding: .32rem .6rem; cursor: pointer; }
+  .mgrid-view button + button { border-left: 1px solid rgb(var(--border)); }
+  .mgrid-view button[aria-pressed="true"] { background: rgb(var(--primary) / .12); color: rgb(var(--primary)); font-weight: 600; }
+  table.mgrid tbody td.cnt-off { color: rgb(var(--muted)); font-weight: 400; }
+  table.mgrid tbody td.cnt-on { font-weight: 600; }
+  table.mgrid tbody td.mgrid-total.cnt-on { font-weight: 700; }
+  .mgrid-view button:focus-visible { outline: 2px solid rgb(var(--primary)); outline-offset: -2px; }
 
   /* ============ INSIGHTS ============ */
   .insights-grid { display: grid; grid-template-columns: 1fr; gap: .9rem; }
@@ -859,6 +871,15 @@
   table.claims-table th:first-child, table.claims-table td:first-child { width: 10rem; }
   table.claims-table th:nth-child(2), table.claims-table td:nth-child(2) { width: 6rem; text-align: right; }
   .dc-split { display: block; font-size: .68rem; color: rgb(var(--muted)); font-weight: 400; white-space: nowrap; }
+  /* Processed (col F) and Total (col G) side by side. The figure that counts
+     toward Avg / Day and the KPI tier is in ink and bold; the other one is
+     shown for reference in muted text. */
+  table.claims-table th.dc-tot, table.claims-table td.dc-tot { width: 6rem; text-align: right; }
+  table.claims-table td.dc-status { text-align: right; }
+  .cnt-on { font-weight: 700; color: rgb(var(--ink)); }
+  .cnt-off { font-weight: 400; color: rgb(var(--muted)); }
+  .cnt-key { display: inline-flex; align-items: center; gap: .3rem; }
+  .cnt-key b { font-weight: 700; color: rgb(var(--ink)); }
   table.claims-table th.dc-logged-at-h, table.claims-table td.dc-logged-at { padding-left: 2rem; }
   .log-layout { gap: 1.25rem; }
   /* Side by side only when there's real room: 860-1023px (no sidebar yet)
@@ -2325,7 +2346,14 @@ function computeAgentSummaries(claims, attendance, agentNames) {
   const attendanceByAgent = groupByAgent(attendance);
   const summaries = agentNames.map((agent) => {
     const agentClaims = claimsByAgent.get(agent) || [];
-    const todayClaims = agentClaims.filter((c) => c.date === today).reduce((s, c) => s + c.claims, 0);
+    const todayRows = agentClaims.filter((c) => c.date === today);
+    const todayClaims = todayRows.reduce((s, c) => s + c.claims, 0);
+    // Today's two figures, so the goal card can name both instead of calling
+    // the counted number "processed" when it's actually the Total.
+    const todayProcessed = todayRows.filter((c) => c.logged).reduce((s, c) => s + c.processed, 0);
+    const todayTotal = todayRows.some((c) => c.logged && c.totalClaims != null)
+      ? todayRows.filter((c) => c.logged).reduce((s, c) => s + (c.totalClaims ?? 0), 0) : null;
+    const todayCombined = todayRows.some((c) => c.combined);
     const mtdClaims = agentClaims.reduce((s, c) => s + c.claims, 0);
     // Claims processed (column F) behind mtdClaims, for the breakdown line.
     const mtdProcessed = agentClaims.filter((c) => c.logged).reduce((s, c) => s + c.processed, 0);
@@ -2346,7 +2374,7 @@ function computeAgentSummaries(claims, attendance, agentNames) {
     const attendancePct = agentAttendance.length
       ? agentAttendance.reduce((s, a) => s + a.attendance, 0) / agentAttendance.length : 0;
     const kpi = calculateKpi(agent, avgClaimsPerDay);
-    return { agent, todayClaims, mtdClaims, mtdProcessed, hasCombined, avgClaimsPerDay, countedDays, absDays, vlDays, chDays, attendancePct, kpi, rank: 0 };
+    return { agent, todayClaims, todayProcessed, todayTotal, todayCombined, mtdClaims, mtdProcessed, hasCombined, avgClaimsPerDay, countedDays, absDays, vlDays, chDays, attendancePct, kpi, rank: 0 };
   });
   // Ranked by Avg Claims / Day (the same number KPI tiers are scored on),
   // so days on VL / CH never push anyone down. Agents with no work days
@@ -2377,12 +2405,17 @@ function groupByAgent(rows) {
 function claimsTrendSeries(claims) {
   const byDate = new Map();
   claims.forEach((c) => {
-    const e = byDate.get(c.date) || { total: 0, logged: 0, absent: 0 };
-    if (c.logged) { e.total += c.claims; e.logged += 1; if (c.absent) e.absent += 1; }
+    const e = byDate.get(c.date) || { total: 0, logged: 0, absent: 0, processed: 0, totalClaims: 0, hasTotal: false };
+    if (c.logged) {
+      e.total += c.claims; e.logged += 1; if (c.absent) e.absent += 1;
+      e.processed += c.processed ?? c.claims;
+      if (!c.absent && c.totalClaims != null) { e.totalClaims += c.totalClaims; e.hasTotal = true; }
+    }
     byDate.set(c.date, e);
   });
   return trimTrailingGaps(Array.from(byDate.entries()).sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, e]) => ({ date, claims: e.logged ? e.total : null, absent: e.logged > 0 && e.absent === e.logged })), 'claims');
+    .map(([date, e]) => ({ date, claims: e.logged ? e.total : null, absent: e.logged > 0 && e.absent === e.logged,
+      processed: e.logged ? e.processed : null, totalClaims: e.hasTotal ? e.totalClaims : null })), 'claims');
 }
 // Average over the agents who actually logged that day (ABS counts, as it
 // does for the KPI average; blank rows don't).
@@ -3365,28 +3398,46 @@ function claimsTableRows(rows, { newestFirst = false } = {}) {
   }).sort((a, b) => (newestFirst ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)));
   const logged = visible.filter((r) => r.logged);
   const total = logged.reduce((s, r) => s + r.claims, 0);
+  // The two figures agents log, kept apart: Processed (col F) and Total
+  // claims (col G). Total only sums days that have one filled in.
+  const processedSum = logged.reduce((s, r) => s + (r.processed ?? r.claims), 0);
+  const withTotal = logged.filter((r) => !r.absent && r.totalClaims != null);
+  const totalSum = withTotal.reduce((s, r) => s + r.totalClaims, 0);
   const best = logged.reduce((max, r) => Math.max(max, r.claims), 0);
   const showLoggedAt = visible.some((r) => r.loggedAt);
   const bodyHtml = visible.map((r) => {
     const { dow, date } = fmtDayParts(r.date);
-    const value = r.excused ? excusedPillHtml(r.excused)
+    const status = r.excused ? excusedPillHtml(r.excused)
       : r.invalid ? invalidPillHtml(r.invalid)
       : !r.logged ? '<span class="not-logged">Not logged</span>'
       : r.absent ? '<span class="abs-pill" title="Unplanned absence, counts as 0">ABS</span>'
-      : r.combined
-        ? `${fmtNum(r.claims)}<small class="dc-split">${fmtNum(r.processed)} processed</small>`
-        : fmtNum(r.claims);
+      : null;
+    const figures = status !== null
+      ? `<td class="num mono dc-status" colspan="2">${status}</td>`
+      : claimsPairCellsHtml(r, 'num mono');
     return `
       <tr class="${r.logged && r.claims === best && best > 0 ? 'dc-best' : ''}">
         <td><span class="dc-dow">${dow}</span>${date}</td>
-        <td class="num mono">${value}</td>
+        ${figures}
         ${showLoggedAt ? `<td class="dc-logged-at">${fmtLoggedAt(r.loggedAt)}</td>` : ''}
       </tr>`;
   }).join('');
-  const headHtml = `<tr><th>Date</th><th class="num">Claims</th>${showLoggedAt ? '<th class="dc-logged-at-h">Logged at</th>' : ''}</tr>`;
+  const headHtml = `<tr><th>Date</th><th class="num" title="Claims processed (column F)">Processed</th><th class="num dc-tot" title="Total claims, processed included (column G)">Total</th>${showLoggedAt ? '<th class="dc-logged-at-h">Logged at</th>' : ''}</tr>`;
   const vlCount = visible.filter((r) => r.excused === 'VL').length;
   const chCount = visible.filter((r) => r.excused === 'CH').length;
-  return { bodyHtml, headHtml, cols: showLoggedAt ? 3 : 2, loggedCount: logged.length, vlCount, chCount, total, hasBest: best > 0 };
+  return { bodyHtml, headHtml, cols: showLoggedAt ? 4 : 3, loggedCount: logged.length, vlCount, chCount, total, processedSum, totalSum, hasTotals: withTotal.length > 0, hasBest: best > 0 };
+}
+// One day's Processed and Total cells. Whichever one the KPI counts that day
+// is bold (Total from COMBINED_CLAIMS_FROM on when filled, otherwise
+// Processed); the other is muted. A blank Total shows as a dash.
+function claimsPairCellsHtml(r, cls = '', extraAttr = ['', '']) {
+  const proc = r.processed ?? r.claims;
+  const procCounts = !r.combined;
+  const procTitle = procCounts ? 'Claims processed, counted toward Avg / Day' : 'Claims processed, already included in Total';
+  const totTitle = r.totalClaims == null ? 'Total claims not logged'
+    : r.combined ? 'Total claims, counted toward Avg / Day' : 'Total claims, for reference (not counted before the Total rule starts)';
+  return `<td class="${cls} ${procCounts ? 'cnt-on' : 'cnt-off'}" title="${procTitle}"${extraAttr[0]}>${fmtNum(proc)}</td>`
+    + `<td class="${cls} dc-tot ${r.combined ? 'cnt-on' : 'cnt-off'}" title="${totTitle}"${extraAttr[1]}>${r.totalClaims == null ? '—' : fmtNum(r.totalClaims)}</td>`;
 }
 function excusedPillHtml(code) {
   return `<span class="excused-pill ${code.toLowerCase()}" title="${EXCUSED_CODES[code]}, not counted in Avg Claims / Day">${code}</span>`;
@@ -3396,7 +3447,8 @@ function invalidPillHtml(raw) {
 }
 function claimsMetaHtml(t) {
   const excl = [t.vlCount ? `${t.vlCount} VL` : '', t.chCount ? `${t.chCount} CH` : ''].filter(Boolean).join(', ');
-  return `${t.loggedCount} day${t.loggedCount !== 1 ? 's' : ''} logged${excl ? ` (${excl} excluded)` : ''} · ${fmtNum(t.total)} total${t.hasBest ? ' · <span class="best-key"><i></i>best day</span>' : ''}`;
+  const figures = `${fmtNum(t.processedSum)} processed${t.hasTotals ? ` · ${fmtNum(t.totalSum)} total` : ''}`;
+  return `${t.loggedCount} day${t.loggedCount !== 1 ? 's' : ''} logged${excl ? ` (${excl} excluded)` : ''} · ${figures} · <span class="cnt-key"><b>bold</b> counts toward KPI</span>${t.hasBest ? ' · <span class="best-key"><i></i>best day</span>' : ''}`;
 }
 
 function renderDailyClaimsTable(claims, selectedAgent, mountId, opts = {}) {
@@ -3452,6 +3504,12 @@ function monthlyGridData(claims, year, month) {
   // A blank Claims cell in the sheet is "no entry" (null), exactly like a
   // missing row — it used to land here as 0 and look identical to ABS.
   const absent = new Set();
+  // The two logged figures per cell, kept apart from the counted one:
+  // proc[date][agent] = Processed (col F), tot[date][agent] = Total (col G,
+  // null when blank), combined = cells where Total is what counts.
+  const proc = {}, tot = {};
+  days.forEach((d) => { proc[d] = {}; tot[d] = {}; agents.forEach((a) => { proc[d][a] = null; tot[d][a] = null; }); });
+  const combined = new Set();
   const marks = new Map(); // 'date|agent' → 'VL' | 'CH' | { invalid: raw }
   inMonth.forEach((c) => {
     if (c.excused || c.invalid) {
@@ -3465,6 +3523,9 @@ function monthlyGridData(claims, year, month) {
       // Summed (not overwritten) so a duplicate row shows up here the same
       // way it does in the dashboard totals; the duplicate banner flags it.
       matrix[c.date][c.agent] = (matrix[c.date][c.agent] || 0) + c.claims;
+      proc[c.date][c.agent] = (proc[c.date][c.agent] || 0) + (c.processed ?? c.claims);
+      if (!c.absent && c.totalClaims != null) tot[c.date][c.agent] = (tot[c.date][c.agent] || 0) + c.totalClaims;
+      if (c.combined) combined.add(c.date + '|' + c.agent);
       if (c.absent) absent.add(c.date + '|' + c.agent);
     }
   });
@@ -3474,6 +3535,19 @@ function monthlyGridData(claims, year, month) {
   const colTotals = {};
   agents.forEach((a) => { colTotals[a] = days.reduce((s, d) => s + (matrix[d][a] || 0), 0); });
   const grand = agents.reduce((s, a) => s + colTotals[a], 0);
+
+  // Same totals for Processed and Total on their own.
+  const sumOf = (m) => {
+    const row = {}, col = {};
+    days.forEach((d) => { row[d] = agents.reduce((s, a) => s + (m[d][a] || 0), 0); });
+    agents.forEach((a) => { col[a] = days.reduce((s, d) => s + (m[d][a] || 0), 0); });
+    const max = {};
+    agents.forEach((a) => { max[a] = days.reduce((x, d) => Math.max(x, m[d][a] || 0), 0); });
+    return { row, col, max, grand: agents.reduce((s, a) => s + col[a], 0) };
+  };
+  const procSums = sumOf(proc);
+  const totSums = sumOf(tot);
+  const hasTotals = days.some((d) => agents.some((a) => tot[d][a] !== null));
 
   // Per-agent daily max, used only for the optional heat shading so one
   // agent's big day doesn't wash out a lower-volume agent's column.
@@ -3490,7 +3564,7 @@ function monthlyGridData(claims, year, month) {
   });
   const teamAvg = agents.length ? agents.reduce((t, a) => t + avgPerDay[a], 0) / agents.length : 0;
 
-  return { days, agents, matrix, rowTotals, colTotals, grand, colMax, absent, marks, workDays, avgPerDay, teamAvg };
+  return { days, agents, matrix, rowTotals, colTotals, grand, colMax, absent, marks, workDays, avgPerDay, teamAvg, proc, tot, combined, procSums, totSums, hasTotals };
 }
 
 function renderMonthlyGrid(filters) {
@@ -3510,7 +3584,7 @@ function renderMonthlyGrid(filters) {
   }
 
   const gridData = monthlyGridData(state.claims, filters.year, filters.month);
-  const { days, agents, matrix, rowTotals, colTotals, grand, colMax, absent, marks, workDays, avgPerDay, teamAvg } = gridData;
+  const { days, agents, matrix, absent, marks, workDays, avgPerDay, teamAvg, proc, tot, combined, procSums, totSums } = gridData;
 
   if (!days.length) {
     mount.innerHTML = `
@@ -3522,6 +3596,9 @@ function renderMonthlyGrid(filters) {
   }
 
   const heatOn = !!filters.monthlyHeat;
+  // What each agent column shows: both logged figures side by side, or one.
+  const view = filters.monthlyView || 'both';
+  const both = view === 'both';
 
   // "Jaypee A." with the full name on hover keeps six columns readable.
   const shortName = (a) => {
@@ -3529,7 +3606,16 @@ function renderMonthlyGrid(filters) {
     const family = a.split(',')[0].trim();
     return `${firstNameOf(a)} ${family ? family[0] + '.' : ''}`.trim();
   };
-  const headCells = agents.map((a) => `<th title="${escHtml(a)}">${escHtml(shortName(a))}</th>`).join('');
+  const PROC_TITLE = 'Claims processed (column F)';
+  const TOT_TITLE = 'Total claims, processed included (column G)';
+  const headHtml = both
+    ? `<tr><th class="mgrid-date" rowspan="2">Date</th>${agents.map((a) => `<th class="mgrid-agent mgrid-pair-start" colspan="2" title="${escHtml(a)}">${escHtml(shortName(a))}</th>`).join('')}<th class="mgrid-total mgrid-agent mgrid-pair-start" colspan="2">Grand Total</th></tr>
+       <tr class="mgrid-subhead">${agents.concat(['']).map((a) => `<th class="mgrid-pair-start${a ? '' : ' mgrid-total'}" title="${PROC_TITLE}">Processed</th><th class="${a ? '' : 'mgrid-total'}" title="${TOT_TITLE}">Total</th>`).join('')}</tr>`
+    : `<tr><th class="mgrid-date">Date</th>${agents.map((a) => `<th title="${escHtml(a)}">${escHtml(shortName(a))}</th>`).join('')}<th class="mgrid-total">Grand Total</th></tr>`;
+
+  const heat = (v, max) => (heatOn && max > 0 && v > 0 ? ` data-heat style="--heat:${(0.08 + 0.34 * (v / max)).toFixed(3)}"` : '');
+  const span = both ? ' colspan="2"' : '';
+  const pairCls = both ? ' mgrid-pair-start' : '';
 
   const bodyRows = days.map((d, rowIndex) => {
     const parts = fmtDayParts(d);
@@ -3539,59 +3625,87 @@ function renderMonthlyGrid(filters) {
     const rowClass = [teamHoliday ? 'mgrid-holiday' : '', newWeek ? 'mgrid-week-start' : ''].filter(Boolean).join(' ');
     const dateLabel = `<span class="dc-dow">${parts.dow}</span>${parts.date}`;
     const cells = agents.map((a) => {
+      const key = d + '|' + a;
       const v = matrix[d][a];
-      const mark = marks.get(d + '|' + a);
-      if (mark) return `<td class="mgrid-cell">${typeof mark === 'string' ? excusedPillHtml(mark) : invalidPillHtml(mark.invalid)}</td>`;
-      if (v === null) return `<td class="mgrid-cell mgrid-empty" title="Not logged">—</td>`;
-      if (absent.has(d + '|' + a)) return `<td class="mgrid-cell"><span class="abs-pill" title="Unplanned absence, counts as 0">ABS</span></td>`;
-      let heatAttr = '';
-      if (heatOn && colMax[a] > 0 && v > 0) {
-        const alpha = (0.08 + 0.34 * (v / colMax[a])).toFixed(3);
-        heatAttr = ` data-heat style="--heat:${alpha}"`;
+      const mark = marks.get(key);
+      if (mark) return `<td class="mgrid-cell${pairCls}"${span}>${typeof mark === 'string' ? excusedPillHtml(mark) : invalidPillHtml(mark.invalid)}</td>`;
+      if (v === null) return `<td class="mgrid-cell mgrid-empty${pairCls}"${span} title="Not logged">—</td>`;
+      if (absent.has(key)) return `<td class="mgrid-cell${pairCls}"${span}><span class="abs-pill" title="Unplanned absence, counts as 0">ABS</span></td>`;
+      const p = proc[d][a], t = tot[d][a];
+      if (both) {
+        const totCounts = combined.has(key);
+        return `<td class="mgrid-cell mgrid-pair-start ${totCounts ? 'cnt-off' : 'cnt-on'}"${heat(p, procSums.max[a])} title="${totCounts ? 'Processed, already included in Total' : 'Processed, counted toward Avg / day'}">${fmtNum(p)}</td>`
+          + (t === null
+            ? `<td class="mgrid-cell mgrid-empty" title="Total not logged">—</td>`
+            : `<td class="mgrid-cell ${totCounts ? 'cnt-on' : 'cnt-off'}"${heat(t, totSums.max[a])} title="${totCounts ? 'Total, counted toward Avg / day' : 'Total, for reference'}">${fmtNum(t)}</td>`);
       }
-      return `<td class="mgrid-cell"${heatAttr}>${fmtNum(v)}</td>`;
+      const shown = view === 'processed' ? p : t;
+      if (shown === null) return `<td class="mgrid-cell mgrid-empty" title="Total not logged">—</td>`;
+      return `<td class="mgrid-cell"${heat(shown, (view === 'processed' ? procSums : totSums).max[a])}>${fmtNum(shown)}</td>`;
     }).join('');
-    const totalCell = teamHoliday ? excusedPillHtml('CH') : fmtNum(rowTotals[d]);
-    return `<tr${rowClass ? ` class="${rowClass}"` : ''}><td class="mgrid-date">${dateLabel}</td>${cells}<td class="mgrid-total">${totalCell}</td></tr>`;
+    const rowTotalCells = teamHoliday
+      ? `<td class="mgrid-total${pairCls}"${span}>${excusedPillHtml('CH')}</td>`
+      : both
+        ? `<td class="mgrid-total mgrid-pair-start">${fmtNum(procSums.row[d])}</td><td class="mgrid-total">${fmtNum(totSums.row[d])}</td>`
+        : `<td class="mgrid-total">${fmtNum((view === 'processed' ? procSums : totSums).row[d])}</td>`;
+    return `<tr${rowClass ? ` class="${rowClass}"` : ''}><td class="mgrid-date">${dateLabel}</td>${cells}${rowTotalCells}</tr>`;
   }).join('');
 
-  const footCells = agents.map((a) => `<td>${fmtNum(colTotals[a])}</td>`).join('');
-  const workDayCells = agents.map((a) => `<td>${workDays[a]}</td>`).join('');
-  const avgCells = agents.map((a) => `<td>${workDays[a] ? fmtNum(avgPerDay[a], 1) : '—'}</td>`).join('');
+  const footCells = both
+    ? agents.map((a) => `<td class="mgrid-pair-start">${fmtNum(procSums.col[a])}</td><td>${fmtNum(totSums.col[a])}</td>`).join('')
+    : agents.map((a) => `<td>${fmtNum((view === 'processed' ? procSums : totSums).col[a])}</td>`).join('');
+  const grandCells = both
+    ? `<td class="mgrid-grand mgrid-pair-start">${fmtNum(procSums.grand)}</td><td class="mgrid-grand">${fmtNum(totSums.grand)}</td>`
+    : `<td class="mgrid-grand">${fmtNum((view === 'processed' ? procSums : totSums).grand)}</td>`;
+  const workDayCells = agents.map((a) => `<td class="${pairCls.trim()}"${span}>${workDays[a]}</td>`).join('');
+  const avgCells = agents.map((a) => `<td class="${pairCls.trim()}"${span}>${workDays[a] ? fmtNum(avgPerDay[a], 1) : '—'}</td>`).join('');
   const totalWorkDays = agents.reduce((t, a) => t + workDays[a], 0);
+  const viewBtn = (id, label) => `<button type="button" data-mgrid-view="${id}" aria-pressed="${view === id}">${label}</button>`;
+  const totalsNote = gridData.hasTotals ? '' : ' · no Total claims logged this month';
 
   mount.innerHTML = `
     <div class="glass card">
       <div class="dc-head">
         <h3>Monthly View — ${monthLabel}</h3>
         <div style="display:flex; align-items:center; gap:.75rem; flex-wrap:wrap;">
-          <span>— not logged · <span class="abs-pill">ABS</span> absent · <span class="excused-pill vl">VL</span> leave · <span class="excused-pill ch">CH</span> client holiday</span>
+          <span>— not logged · <span class="abs-pill">ABS</span> absent · <span class="excused-pill vl">VL</span> leave · <span class="excused-pill ch">CH</span> client holiday${both ? ' · <span class="cnt-key"><b>bold</b> counts toward KPI</span>' : ''}</span>
+          <div class="mgrid-view" role="group" aria-label="Figures to show">${viewBtn('both', 'Processed + Total')}${viewBtn('processed', 'Processed')}${viewBtn('total', 'Total')}</div>
           <label style="display:flex; align-items:center; gap:.4rem; font-size:.76rem; color:rgb(var(--muted)); cursor:pointer; text-transform:none; letter-spacing:0;">
             <input type="checkbox" id="mgrid-heat-toggle" ${heatOn ? 'checked' : ''} style="width:auto; margin:0;"> Heat map
           </label>
           <button class="btn btn-glass btn-sm" id="mgrid-export-btn">${ICONS.download}Export grid</button>
-          <span>${fmtNum(grand)} claims &middot; team avg ${fmtNum(teamAvg, 1)} / day</span>
+          <span>${fmtNum(gridData.procSums.grand)} processed &middot; ${fmtNum(gridData.totSums.grand)} total${totalsNote} &middot; team avg ${fmtNum(teamAvg, 1)} / day</span>
         </div>
       </div>
       <div class="mgrid-wrap">
         <table class="mgrid">
-          <thead><tr><th class="mgrid-date">Date</th>${headCells}<th class="mgrid-total">Grand Total</th></tr></thead>
+          <thead>${headHtml}</thead>
           <tbody>${bodyRows}</tbody>
           <tfoot>
-            <tr class="mgrid-sub"><td class="mgrid-date" title="Days with a number logged (ABS included). VL, CH and blank days are left out.">Work days</td>${workDayCells}<td class="mgrid-total" title="Agent work days, all agents">${totalWorkDays}</td></tr>
-            <tr class="mgrid-sub"><td class="mgrid-date" title="Total claims ÷ work days">Avg / day</td>${avgCells}<td class="mgrid-total" title="Average of each agent's Avg / day">${fmtNum(teamAvg, 1)}</td></tr>
-            <tr><td class="mgrid-date">Grand Total</td>${footCells}<td class="mgrid-grand">${fmtNum(grand)}</td></tr>
+            <tr class="mgrid-sub"><td class="mgrid-date" title="Days with a number logged (ABS included). VL, CH and blank days are left out.">Work days</td>${workDayCells}<td class="mgrid-total${pairCls}"${span} title="Agent work days, all agents">${totalWorkDays}</td></tr>
+            <tr class="mgrid-sub"><td class="mgrid-date" title="Counted claims ÷ work days. Counted = Total where it applies, otherwise Processed.">Avg / day</td>${avgCells}<td class="mgrid-total${pairCls}"${span} title="Average of each agent's Avg / day">${fmtNum(teamAvg, 1)}</td></tr>
+            <tr><td class="mgrid-date">Grand Total</td>${footCells}${grandCells}</tr>
           </tfoot>
         </table>
       </div>
     </div>`;
+
+  // Second header row sticks right under the first.
+  if (both) {
+    const table = mount.querySelector('table.mgrid');
+    const firstRow = table && table.querySelector('thead tr');
+    if (firstRow) table.style.setProperty('--mgrid-head-h', firstRow.getBoundingClientRect().height + 'px');
+  }
+  mount.querySelectorAll('[data-mgrid-view]').forEach((b) => {
+    b.onclick = () => { filters.monthlyView = b.dataset.mgridView; renderMonthlyGrid(filters); };
+  });
 
   const heatToggle = document.getElementById('mgrid-heat-toggle');
   if (heatToggle) heatToggle.onchange = () => { filters.monthlyHeat = heatToggle.checked; renderMonthlyGrid(filters); };
 
   const exportBtn = document.getElementById('mgrid-export-btn');
   if (exportBtn) exportBtn.onclick = () => {
-    const csv = monthlyGridToCsv(gridData, filters.year);
+    const csv = monthlyGridToCsv(gridData, filters.year, view);
     const safe = (s) => String(s).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
     downloadCsv(`Takahami-Monthly-${safe(MONTH_NAMES[filters.month - 1])}-${filters.year}.csv`, csv);
   };
@@ -3600,27 +3714,38 @@ function renderMonthlyGrid(filters) {
 // CSV that mirrors the on-screen pivot (same shape as the Google Sheet
 // export): a header row of agents, one row per day, a Grand Total column,
 // and a Grand Total row. Blank cells stay blank; absent days export as 0.
-function monthlyGridToCsv({ days, agents, matrix, rowTotals, colTotals, grand, marks, workDays, avgPerDay, teamAvg }, year) {
+function monthlyGridToCsv({ days, agents, matrix, marks, workDays, avgPerDay, teamAvg, proc, tot, procSums, totSums }, year, view = 'both') {
   const esc = (s) => {
     const str = String(s);
     return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
   };
+  // 'both' writes a Processed and a Total column per agent; otherwise one.
+  const both = view === 'both';
+  const pick = view === 'processed' ? { m: proc, s: procSums } : { m: tot, s: totSums };
   const lines = [];
-  lines.push(['Date', ...agents, 'Grand Total'].map(esc).join(','));
+  lines.push((both
+    ? ['Date', ...agents.flatMap((a) => [`${a} - Processed`, `${a} - Total`]), 'Grand Total - Processed', 'Grand Total - Total']
+    : ['Date', ...agents.map((a) => `${a} - ${view === 'processed' ? 'Processed' : 'Total'}`), 'Grand Total']).map(esc).join(','));
   days.forEach((d) => {
     const [, m, day] = d.split('-');
-    const cells = agents.map((a) => {
+    const cells = agents.flatMap((a) => {
       const mark = marks && marks.get(d + '|' + a);
-      if (typeof mark === 'string') return mark;
-      return matrix[d][a] === null ? '' : matrix[d][a];
+      if (typeof mark === 'string') return both ? [mark, mark] : [mark];
+      if (matrix[d][a] === null) return both ? ['', ''] : [''];
+      const p = proc[d][a], t = tot[d][a];
+      return both ? [p ?? '', t ?? ''] : [pick.m[d][a] ?? ''];
     });
-    lines.push([`${Number(m)}/${Number(day)}/${year}`, ...cells, rowTotals[d]].map(esc).join(','));
+    const rowTot = both ? [procSums.row[d], totSums.row[d]] : [pick.s.row[d]];
+    lines.push([`${Number(m)}/${Number(day)}/${year}`, ...cells, ...rowTot].map(esc).join(','));
   });
+  const pad = (v) => (both ? [v, ''] : [v]);
   if (workDays) {
-    lines.push(['Work days', ...agents.map((a) => workDays[a]), agents.reduce((t, a) => t + workDays[a], 0)].map(esc).join(','));
-    lines.push(['Avg / day', ...agents.map((a) => (workDays[a] ? (Math.round(avgPerDay[a] * 10) / 10).toFixed(1) : '')), (Math.round(teamAvg * 10) / 10).toFixed(1)].map(esc).join(','));
+    lines.push(['Work days', ...agents.flatMap((a) => pad(workDays[a])), ...pad(agents.reduce((t, a) => t + workDays[a], 0))].map(esc).join(','));
+    lines.push(['Avg / day (counted)', ...agents.flatMap((a) => pad(workDays[a] ? (Math.round(avgPerDay[a] * 10) / 10).toFixed(1) : '')), ...pad((Math.round(teamAvg * 10) / 10).toFixed(1))].map(esc).join(','));
   }
-  lines.push(['Grand Total', ...agents.map((a) => colTotals[a]), grand].map(esc).join(','));
+  lines.push((both
+    ? ['Grand Total', ...agents.flatMap((a) => [procSums.col[a], totSums.col[a]]), procSums.grand, totSums.grand]
+    : ['Grand Total', ...agents.map((a) => pick.s.col[a]), pick.s.grand]).map(esc).join(','));
   return lines.join('\n');
 }
 
@@ -4090,7 +4215,9 @@ function renderGoalProgress(me) {
         <div class="goal-eyebrow">${ICONS.target}Today's goal</div>
         <div>
           <p class="goal-title display">${gp.goal} Claims</p>
-          <p class="goal-detail"><span class="mono" style="font-weight:700;color:rgb(var(--ink));">${gp.current}</span> processed &middot; ${met
+          <p class="goal-detail">${me.todayCombined
+            ? `<span class="mono" style="font-weight:700;color:rgb(var(--ink));">${fmtNum(me.todayTotal)}</span> total (${fmtNum(me.todayProcessed)} processed)`
+            : `<span class="mono" style="font-weight:700;color:rgb(var(--ink));">${gp.current}</span> processed${me.todayTotal != null ? ` (${fmtNum(me.todayTotal)} total)` : ''}`} &middot; ${met
             ? '<span style="font-weight:700;color:rgb(var(--accent));">Goal met</span>'
             : `<span class="mono" style="font-weight:700;color:rgb(var(--ink));">${gp.remaining}</span> to go`}</p>
         </div>
@@ -4439,6 +4566,7 @@ function renderLineChart(canvasId, data, xKey, yKey, colorVar, filled, maxY) {
       existing.data.labels = labels;
       Object.assign(existing.data.datasets[0], { data: values }, style);
       existing.$absent = absentFlags;
+      existing.$rows = data;
       existing.update(CHART_ANIMATION_ENABLED ? undefined : 'none');
       setChartAria(canvasId, summary);
       return;
@@ -4475,7 +4603,13 @@ function renderLineChart(canvasId, data, xKey, yKey, colorVar, filled, maxY) {
           callbacks: {
             label: (c) => {
               if (c.chart.$absent && c.chart.$absent[c.dataIndex]) return ' Absent (ABS)';
-              return ' ' + fmtNum(c.parsed.y, yKey === 'average' ? 1 : 0);
+              return ' ' + fmtNum(c.parsed.y, yKey === 'average' ? 1 : 0) + (yKey === 'claims' ? ' counted' : '');
+            },
+            // Name both logged figures under the counted one.
+            afterLabel: (c) => {
+              const r = c.chart.$rows && c.chart.$rows[c.dataIndex];
+              if (!r || r.processed == null || (c.chart.$absent && c.chart.$absent[c.dataIndex])) return '';
+              return ` ${fmtNum(r.processed)} processed` + (r.totalClaims != null ? ` · ${fmtNum(r.totalClaims)} total` : '');
             },
           },
         },
@@ -4487,6 +4621,7 @@ function renderLineChart(canvasId, data, xKey, yKey, colorVar, filled, maxY) {
     },
   });
   chart.$absent = absentFlags;
+  chart.$rows = data;
   state.charts[canvasId] = chart;
   setChartAria(canvasId, summary);
 }
