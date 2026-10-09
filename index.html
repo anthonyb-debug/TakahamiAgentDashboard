@@ -1256,7 +1256,11 @@ const CONFIG = {
   // OPTIONAL tab that overrides the KPI tier thresholds and the attendance
   // target per agent. Columns: A=Agent (or * / Default for everyone not named
   // explicitly), B=KPI2 min, C=KPI3 min, D=KPI4 min, E=KPI5 min,
-  // F=Attendance target %. Missing tab or unusable rows = built-in tiers.
+  // F=Attendance target %, G=Effective from (a month such as 2026-09 or
+  // Sep 2026; blank = has always applied). Each month is scored with the
+  // newest row dated on or before it, so a policy change is a new row and
+  // past months keep the scale they were scored on.
+  // Missing tab or unusable rows = built-in tiers.
   TARGETS_SHEET_NAME: 'Targets',
 
   // How often to re-poll Google Sheets for changes (ms). Polling pauses while
@@ -1368,10 +1372,21 @@ const ICONS = {
 };
 
 /* ==========================================================================
-   KPI SCORING — full 1–5 tables for standard agents and the Christia Mapa
-   special case. Ranges are on the rounded avg claims/day and are contiguous,
+   KPI SCORING — ranges are on the rounded avg claims/day and are contiguous,
    so every value maps to exactly one tier (no "below tier" gap).
+   From September 2026 one unified scale applies to every agent. Months
+   before that keep the older standard table and the Christia Mapa special
+   case, so past months don't change tier after the fact.
    ========================================================================== */
+const UNIFIED_TIERS_FROM = 202609; // September 2026, as year * 100 + month
+const UNIFIED_TIERS = [
+  { level: 1, min: 0,   max: 24 },   // less than 25
+  { level: 2, min: 25,  max: 100 },  // 25–100
+  { level: 3, min: 101, max: 176 },  // 101–176
+  { level: 4, min: 177, max: 252 },  // 177–252
+  { level: 5, min: 253, max: null }, // more than 252
+];
+// Before September 2026:
 const STANDARD_TIERS = [
   { level: 1, min: 0,  max: 29 },   // less than 30
   { level: 2, min: 30, max: 44 },   // 30–44
@@ -1393,31 +1408,77 @@ function isSpecialAgent(name) {
   const normalized = (name || '').toLowerCase();
   return normalized.includes('christia') && normalized.includes('mapa');
 }
+// Months are compared as year * 100 + month (September 2026 = 202609).
+function ymOf(year, month) { return year * 100 + month; }
+function currentYm() { const n = nowInZone(); return ymOf(n.year, n.month); }
+function ymFromIso(iso) { return Number(iso.slice(0, 4)) * 100 + Number(iso.slice(5, 7)); }
+function ymLabel(ym) { return `${MONTH_NAMES[(ym % 100) - 1]} ${Math.floor(ym / 100)}`; }
+// The month whose scale scores a filtered view: the month itself; for a
+// custom range, the month it ends in; for "All months", the latest month of
+// that year that has started.
+function scoringYmForFilters(filters) {
+  if (!filters) return currentYm();
+  const now = currentYm();
+  if (filters.dateFrom || filters.dateTo) return filters.dateTo ? Math.min(ymFromIso(filters.dateTo), now) : now;
+  if (filters.month !== 'all' && filters.month) return ymOf(filters.year, filters.month);
+  const endOfYear = ymOf(filters.year, 12);
+  return Math.min(endOfYear, now);
+}
+// Latest month present in a set of rows (falls back to the current month).
+function scoringYmForRows(rows) {
+  let ym = 0;
+  for (const r of rows) if (r.year && r.month) ym = Math.max(ym, ymOf(r.year, r.month));
+  return ym || currentYm();
+}
+
 // Tier thresholds come from the Targets tab when it defines a row for this
-// agent (or a default row), so a policy change is a sheet edit. Everything
-// falls back to the tables above, which is also what runs before the first
-// data load completes.
-function getTiersForAgent(name) {
-  const override = targetsForAgent(name);
-  if (override && override.tiers) return override.tiers;
+// agent (or a default row) that is in effect for the month, so a policy
+// change is a sheet edit. Everything falls back to the tables above, which
+// is also what runs before the first data load completes.
+function builtInTiers(name, ym) {
+  if (ym >= UNIFIED_TIERS_FROM) return UNIFIED_TIERS;
   return isSpecialAgent(name) ? SPECIAL_TIERS : STANDARD_TIERS;
 }
-function targetsForAgent(name) {
+function getTiersForAgent(name, ym = currentYm()) {
+  const override = targetsForAgent(name, ym);
+  if (override && override.tiers) return override.tiers;
+  return builtInTiers(name, ym);
+}
+// Newest row dated on or before ym that sets this field, as { from, value }
+// (rows are sorted oldest first; an undated row counts as the oldest).
+function latestInEffect(rows, ym, field) {
+  let found = null;
+  if (!rows) return null;
+  for (const r of rows) {
+    if (r.from > ym) break;
+    const v = r[field];
+    if (field === 'tiers' ? v : Number.isFinite(v)) found = { from: r.from, value: v };
+  }
+  return found;
+}
+// An agent's own row wins over a default row of the same date or older,
+// but a newer default row replaces it, so a scale that's unified for
+// everyone from some month also covers agents who had their own scale.
+function pickInEffect(own, fallback, ym, field) {
+  const a = latestInEffect(own, ym, field);
+  const b = latestInEffect(fallback, ym, field);
+  if (a && (!b || a.from >= b.from)) return a.value;
+  return b ? b.value : null;
+}
+function targetsForAgent(name, ym = currentYm()) {
   const t = state.targets;
   if (!t) return null;
   const key = (name || '').trim().toLowerCase();
   const own = t.byAgent.get(key);
-  if (!own) return t.fallback || null;
   // An agent row that only sets an attendance target shouldn't lose the
   // default row's tiers (or vice versa) — fill the gaps from the default.
-  if (!t.fallback) return own;
-  return {
-    tiers: own.tiers || t.fallback.tiers,
-    attendanceTarget: Number.isFinite(own.attendanceTarget) ? own.attendanceTarget : t.fallback.attendanceTarget,
-  };
+  const tiers = pickInEffect(own, t.fallback, ym, 'tiers');
+  const attendanceTarget = pickInEffect(own, t.fallback, ym, 'attendanceTarget');
+  if (!tiers && !Number.isFinite(attendanceTarget)) return null;
+  return { tiers, attendanceTarget };
 }
-function attendanceTargetFor(name) {
-  const override = targetsForAgent(name);
+function attendanceTargetFor(name, ym = currentYm()) {
+  const override = targetsForAgent(name, ym);
   if (override && Number.isFinite(override.attendanceTarget)) return override.attendanceTarget;
   return CONFIG.ATTENDANCE_TARGET_PCT;
 }
@@ -1433,8 +1494,9 @@ function computeKpiStreak(claims, agentName, maxLookback = 60) {
     if (c.logged) claimsByDate.set(c.date, (claimsByDate.get(c.date) || 0) + c.claims);
     else if (c.excused) skipDates.add(c.date);
   });
-  const threshold = getTiersForAgent(agentName).find((t) => t.level === 4).min;
-  const meetsThreshold = (iso) => { const v = claimsByDate.get(iso); return v !== undefined && v >= threshold; };
+  // Each day is judged against the KPI-4 bar of its own month's scale.
+  const thresholdFor = (iso) => getTiersForAgent(agentName, ymFromIso(iso)).find((t) => t.level === 4).min;
+  const meetsThreshold = (iso) => { const v = claimsByDate.get(iso); return v !== undefined && v >= thresholdFor(iso); };
 
   let streak = 0;
   const cursor = todayCalendar();
@@ -1560,7 +1622,7 @@ function workdaysElapsedInMonth(year, month) {
 // own next tier (computeClaimsDeficit below) or a fixed one like KPI 5 for
 // the "stretch" preview line.
 function computeDeficitForTier(claims, agentName, year, month, tierLevel) {
-  const tier = getTiersForAgent(agentName).find((t) => t.level === tierLevel);
+  const tier = getTiersForAgent(agentName, ymOf(year, month)).find((t) => t.level === tierLevel);
   if (!tier) return null;
   const agentMonth = claims.filter((c) => c.agent === agentName && c.year === year && c.month === month);
   // Use the SAME denominator as Avg Claims / Day: distinct days the agent
@@ -1579,7 +1641,7 @@ function computeDeficitForTier(claims, agentName, year, month, tierLevel) {
 // so the number means the same thing regardless of where someone starts.
 // Once already at the top tier, it measures against sustaining that tier.
 function computeClaimsDeficit(claims, agentName, year, month, kpi) {
-  const tiers = getTiersForAgent(agentName);
+  const tiers = kpi.tiers || getTiersForAgent(agentName, ymOf(year, month));
   const targetTier = kpi.nextTier || tiers[tiers.length - 1];
   return computeDeficitForTier(claims, agentName, year, month, targetTier.level);
 }
@@ -1612,8 +1674,11 @@ function computeTeamDeficitForTier(claims, summaries, year, month, tierLevel) {
   });
   return { expected, actual, deficit: expected - actual, targetLevel: tierLevel };
 }
-function calculateKpi(agentName, avgClaimsPerDay) {
-  const tiers = getTiersForAgent(agentName);
+// ym picks which month's scale applies (defaults to the current month).
+// The result carries its tiers so everything drawn from it (progress bar,
+// projection, pace) uses the same scale it was scored on.
+function calculateKpi(agentName, avgClaimsPerDay, ym = currentYm()) {
+  const tiers = getTiersForAgent(agentName, ym);
   // Averages are shown and scored as whole numbers: 189.5 and up is 190.
   const rounded = Math.round(avgClaimsPerDay);
   let matched = null;
@@ -1624,6 +1689,8 @@ function calculateKpi(agentName, avgClaimsPerDay) {
   const sortedAscending = [...tiers].sort((a, b) => a.min - b.min);
   const nextTier = sortedAscending.find((t) => t.min > rounded) || null;
   return {
+    ym,
+    tiers,
     level: matched ? matched.level : 0,
     tierLabel: matched ? ('KPI ' + matched.level) : 'KPI 1',
     dailyGoal: topTier.min,
@@ -2188,24 +2255,52 @@ function tiersFromThresholds(t2, t3, t4, t5) {
     { level: 5, min: mins[3], max: null },
   ];
 }
+// Column G "Effective from": a month as 2026-09, 2026-09-01, 9/1/2026,
+// 9/2026, Sep 2026 or September 2026. Blank = applies from the beginning
+// (0). Anything unreadable returns NaN and the row is skipped, since
+// guessing a date could rescore the wrong months.
+function parseEffectiveMonth(raw) {
+  const v = String(raw ?? '').trim();
+  if (!v) return 0;
+  let m = v.match(/^(\d{4})[-/](\d{1,2})(?:[-/]\d{1,2})?(?:[ T][\d:.]+)?$/);
+  if (m) return Number(m[2]) >= 1 && Number(m[2]) <= 12 ? ymOf(Number(m[1]), Number(m[2])) : NaN;
+  m = v.match(/^(\d{1,2})\/(?:\d{1,2}\/)?(\d{4})(?:\s+[\d:.]+(?:\s*[AP]M)?)?$/i);
+  if (m) return Number(m[1]) >= 1 && Number(m[1]) <= 12 ? ymOf(Number(m[2]), Number(m[1])) : NaN;
+  m = v.match(/^([A-Za-z]+)\.?\s+(?:\d{1,2},?\s+)?(\d{4})$/);
+  if (m) {
+    const idx = MONTH_NAMES.findIndex((n) => n.toLowerCase().startsWith(m[1].toLowerCase().slice(0, 3)));
+    return idx >= 0 && m[1].length >= 3 ? ymOf(Number(m[2]), idx + 1) : NaN;
+  }
+  return NaN;
+}
 async function fetchTargets() {
   const text = await fetchSheetText(CONFIG.TARGETS_SHEET_NAME, 'Targets');
   const rows = parseCsv(text);
   const byAgent = new Map();
-  let fallback = null;
+  const fallback = [];
   rows.slice(1).forEach((r) => {
     const rawAgent = String(r[0] ?? '').trim();
     if (!rawAgent) return;
+    const from = parseEffectiveMonth(r[6]);
+    if (!Number.isFinite(from)) { console.warn(`Targets tab: skipped the row for "${rawAgent}" — couldn't read the Effective from month "${r[6]}".`); return; }
     const tiers = tiersFromThresholds(Number(r[1]), Number(r[2]), Number(r[3]), Number(r[4]));
     const attRaw = String(r[5] ?? '').trim();
     const attendanceTarget = attRaw === '' ? null : toPercent(attRaw);
     if (!tiers && attendanceTarget === null) return;
-    const entry = { tiers, attendanceTarget };
+    const entry = { from, tiers, attendanceTarget };
     const key = rawAgent.toLowerCase();
-    if (key === '*' || key === 'default' || key === 'all' || key === 'all agents') fallback = entry;
-    else byAgent.set(key, entry);
+    if (key === '*' || key === 'default' || key === 'all' || key === 'all agents') fallback.push(entry);
+    else {
+      if (!byAgent.has(key)) byAgent.set(key, []);
+      byAgent.get(key).push(entry);
+    }
   });
-  return (byAgent.size || fallback) ? { byAgent, fallback } : null;
+  // Oldest first, so the lookup can stop at the first row past the month.
+  // Rows with the same date keep sheet order, so a later row wins.
+  const byFrom = (a, b) => a.from - b.from;
+  fallback.sort(byFrom);
+  byAgent.forEach((list) => list.sort(byFrom));
+  return (byAgent.size || fallback.length) ? { byAgent, fallback } : null;
 }
 
 /* ==========================================================================
@@ -2359,7 +2454,7 @@ function computeMissingWorkdays(claims, agentName, maxLookback = 14, loggedIndex
   return missing; // most recent missing day first
 }
 
-function computeAgentSummaries(claims, attendance, agentNames) {
+function computeAgentSummaries(claims, attendance, agentNames, scoringYm = scoringYmForRows(claims)) {
   const today = todayISO();
   // Group once up front instead of scanning the full lists for every agent.
   const claimsByAgent = groupByAgent(claims);
@@ -2397,7 +2492,7 @@ function computeAgentSummaries(claims, attendance, agentNames) {
     const agentAttendance = attendanceByAgent.get(agent) || [];
     const attendancePct = agentAttendance.length
       ? agentAttendance.reduce((s, a) => s + a.attendance, 0) / agentAttendance.length : 0;
-    const kpi = calculateKpi(agent, avgClaimsPerDay);
+    const kpi = calculateKpi(agent, avgClaimsPerDay, scoringYm);
     return { agent, todayClaims, todayProcessed, todayTotal, todayCombined, mtdClaims, mtdProcessed, mtdTotal, hasTotals, hasCombined, avgClaimsPerDay, countedDays, absDays, vlDays, chDays, attendancePct, kpi, rank: 0 };
   });
   // Ranked by Avg Claims / Day (the same number KPI tiers are scored on),
@@ -3328,7 +3423,7 @@ function renderDashboard() {
   const summaryAgentList = filters.agent === 'all' ? state.agents : [filters.agent];
   let summaries = [];
   try {
-    summaries = computeAgentSummaries(filteredClaims, filteredAttendance, summaryAgentList);
+    summaries = computeAgentSummaries(filteredClaims, filteredAttendance, summaryAgentList, scoringYmForFilters(filters));
   } catch (err) {
     console.error('computeAgentSummaries failed:', err);
   }
@@ -3342,7 +3437,7 @@ function renderDashboard() {
     try {
       const { filteredClaims: teamClaims, filteredAttendance: teamAttendance } =
         applyFilters(state.claims, state.attendance, { ...filters, agent: 'all' });
-      teamSummaries = computeAgentSummaries(teamClaims, teamAttendance, state.agents);
+      teamSummaries = computeAgentSummaries(teamClaims, teamAttendance, state.agents, scoringYmForFilters(filters));
     } catch (err) {
       console.error('team summaries failed:', err);
     }
@@ -3814,12 +3909,13 @@ function renderClientReport(filters) {
   // because that's where VL / CH / ABS are recorded (ABS counts as a work
   // day; VL, CH and blank days don't). The KPI tier is scored on that average.
   const { filteredClaims: crClaims, filteredAttendance: crAtt } = applyFilters(state.claims, state.attendance, { year: filters.year, month: filters.month, agent: 'all' });
-  const perf = new Map(computeAgentSummaries(crClaims, crAtt, list.map((x) => x.agent)).map((s) => [s.agent, s]));
+  const crYm = scoringYmForFilters(filters);
+  const perf = new Map(computeAgentSummaries(crClaims, crAtt, list.map((x) => x.agent), crYm).map((s) => [s.agent, s]));
   list.forEach((x) => {
     const s = perf.get(x.agent);
     x.workDays = s ? s.countedDays : 0;
     x.avgPerDay = x.workDays ? x.total / x.workDays : null;
-    x.kpi = x.avgPerDay === null ? null : calculateKpi(x.agent, x.avgPerDay);
+    x.kpi = x.avgPerDay === null ? null : calculateKpi(x.agent, x.avgPerDay, crYm);
   });
   const withAvg = list.filter((x) => x.avgPerDay !== null);
   totals.workDays = list.reduce((t, x) => t + x.workDays, 0);
@@ -4051,7 +4147,7 @@ function computeMonthProjection(claims, s, year, month) {
     if (iso < today) continue;
     remaining++;
   }
-  const tiers = getTiersForAgent(s.agent);
+  const tiers = s.kpi.tiers || getTiersForAgent(s.agent, ymOf(year, month));
   const target = s.kpi.nextTier || [...tiers].sort((a, b) => b.min - a.min)[0];
   if (!remaining) return { remaining: 0, target, neededPerDay: null };
   const neededTotal = target.min * (s.countedDays + remaining) - s.mtdClaims;
@@ -4079,7 +4175,7 @@ function projectionSubtext(proj, kpi) {
 // same rounded avg/day the tier is scored on.
 function tierProgressHtml(agentName, kpi, avg) {
   if (!kpi.nextTier) return '<div class="tier-bar is-top" role="img" aria-label="Top tier reached"><span style="width:100%"></span></div>';
-  const tiers = getTiersForAgent(agentName);
+  const tiers = kpi.tiers || getTiersForAgent(agentName, kpi.ym);
   const current = tiers.find((t) => t.level === kpi.level) || { min: 0 };
   const span = Math.max(kpi.nextTier.min - current.min, 1);
   const pct = Math.max(0, Math.min(100, ((avg - current.min) / span) * 100));
@@ -4278,7 +4374,7 @@ function renderAttendanceGoalCard(me) {
   const mount = document.getElementById('attendance-goal-mount');
   if (!me) { mount.innerHTML = ''; return; }
 
-  const target = attendanceTargetFor(me.agent);
+  const target = attendanceTargetFor(me.agent, me.kpi && me.kpi.ym);
   const current = me.attendancePct;
   const progressPct = Math.min(Math.round((current / target) * 100), 100);
   const gapPts = Math.max(target - current, 0);
@@ -4387,7 +4483,7 @@ function monthSummaryHtml(year, month) {
   const me = isManager ? null : matchAgentName();
   const { filteredClaims, filteredAttendance } = applyFilters(state.claims, state.attendance, { year, month, agent: 'all' });
   const agents = isManager ? state.agents : (me ? [me] : []);
-  let rows = computeAgentSummaries(filteredClaims, filteredAttendance, agents);
+  let rows = computeAgentSummaries(filteredClaims, filteredAttendance, agents, ymOf(year, month));
   const f = state.dashFilters || {};
   const useClient = f.source === 'client' && !clientSourceUnavailableReason({ year, month, agent: 'all' });
   if (useClient) rows = applyClientSource(rows, { year, month, agent: 'all' });
@@ -4486,7 +4582,7 @@ function applyClientSource(summaries, filters) {
   const out = summaries.map((s) => {
     const total = totals.get(s.agent) || 0;
     const avg = s.countedDays ? total / s.countedDays : 0;
-    return { ...s, mtdClaims: total, avgClaimsPerDay: avg, kpi: calculateKpi(s.agent, avg), clientSource: true };
+    return { ...s, mtdClaims: total, avgClaimsPerDay: avg, kpi: calculateKpi(s.agent, avg, s.kpi ? s.kpi.ym : scoringYmForFilters(filters)), clientSource: true };
   });
   out.sort((a, b) => (b.countedDays > 0) - (a.countedDays > 0) || b.avgClaimsPerDay - a.avgClaimsPerDay || b.mtdClaims - a.mtdClaims || a.agent.localeCompare(b.agent));
   out.forEach((s, i) => { s.rank = i + 1; });
@@ -4494,13 +4590,13 @@ function applyClientSource(summaries, filters) {
 }
 // Pace from a summary alone (used when totals come from the client report).
 function deficitFromSummary(s, tierLevel) {
-  const tier = getTiersForAgent(s.agent).find((t) => t.level === tierLevel);
+  const tier = (s.kpi.tiers || getTiersForAgent(s.agent, s.kpi.ym)).find((t) => t.level === tierLevel);
   if (!tier) return null;
   const expected = s.countedDays * tier.min;
   return { expected, actual: s.mtdClaims, deficit: expected - s.mtdClaims, targetLevel: tierLevel };
 }
 function nextTierLevelOf(s) {
-  const tiers = getTiersForAgent(s.agent);
+  const tiers = s.kpi.tiers || getTiersForAgent(s.agent, s.kpi.ym);
   return (s.kpi.nextTier || tiers[tiers.length - 1]).level;
 }
 
@@ -4883,12 +4979,20 @@ function renderHistory() {
   const labels = rows.map((r) => r.label.slice(0, 3));
 
   // Avg / day with tier thresholds when a single agent is in view.
-  const tiers = single ? getTiersForAgent(filters.agent) : null;
+  // Lines use the scale of the selected month (or the latest month of the
+  // year); the note says so when the scale changed during the year.
+  const histYm = scoringYmForFilters(filters);
+  const tiers = single ? getTiersForAgent(filters.agent, histYm) : null;
+  const scaleChange = single ? rows.find((r) => {
+    const t = getTiersForAgent(filters.agent, ymOf(filters.year, r.month));
+    return t.find((x) => x.level === 4).min !== tiers.find((x) => x.level === 4).min
+      || t.find((x) => x.level === 5).min !== tiers.find((x) => x.level === 5).min;
+  }) : null;
   const refLines = tiers ? [
     { label: `KPI 4 (${tiers.find((t) => t.level === 4).min}/day)`, value: tiers.find((t) => t.level === 4).min, color: cssVarColor('--muted') },
     { label: `KPI 5 (${tiers.find((t) => t.level === 5).min}/day)`, value: tiers.find((t) => t.level === 5).min, color: cssVarColor('--accent') },
   ] : [];
-  document.getElementById('hist-avg-note').textContent = single ? 'Dashed lines mark the KPI 4 and KPI 5 thresholds.' : 'Pick an agent to see their KPI thresholds.';
+  document.getElementById('hist-avg-note').textContent = single ? (scaleChange ? `Dashed lines mark the KPI 4 and KPI 5 thresholds for ${ymLabel(histYm)}. The KPI scale was different in some other months; the table below scores each month on its own scale.` : 'Dashed lines mark the KPI 4 and KPI 5 thresholds.') : 'Pick an agent to see their KPI thresholds.';
   renderMonthlyRefChart('hist-chart-monthly-avg', {
     labels, values: rows.map((r) => (r.avg === null ? null : Math.round(r.avg))), decimals: 0, refLines, yMin: 0,
     colors: rows.map((r) => cssVarColor('--primary', anySel && !isSel(r) ? 0.4 : 1)),
@@ -4896,7 +5000,7 @@ function renderHistory() {
   });
 
   // Attendance: honest 0–100 scale, green at/above target, amber below.
-  const attTarget = single ? attendanceTargetFor(filters.agent) : CONFIG.ATTENDANCE_TARGET_PCT;
+  const attTarget = single ? attendanceTargetFor(filters.agent, histYm) : CONFIG.ATTENDANCE_TARGET_PCT;
   document.getElementById('hist-att-note').textContent = `Dashed line: ${attTarget}% target.`;
   renderMonthlyRefChart('hist-chart-attendance', {
     labels, values: rows.map((r) => (r.attendance === null ? null : Number(r.attendance.toFixed(1)))), decimals: 1, suffix: '%', yMin: 0, yMax: 100,
@@ -4913,7 +5017,7 @@ function renderHistory() {
       <td class="num mono">${fmtNum(r.total)}</td>
       <td class="num mono">${r.avg === null ? '—' : fmtNum(r.avg)}</td>
       <td class="num mono">${r.attendance === null ? '—' : fmtPct(r.attendance)}</td>
-      ${single ? `<td class="num">${r.avg === null ? '—' : calculateKpi(filters.agent, r.avg).tierLabel}</td>` : ''}
+      ${single ? `<td class="num">${r.avg === null ? '—' : calculateKpi(filters.agent, r.avg, ymOf(filters.year, r.month)).tierLabel}</td>` : ''}
     </tr>`).join('');
   document.getElementById('history-months-mount').innerHTML = `
     <div class="dc-head"><h3>Month by Month — ${who}, ${filters.year}</h3><span>Newest first</span></div>
@@ -5334,7 +5438,7 @@ function renderLogSide(agent, f) {
   if (!agent || agent === 'all') { mount.innerHTML = ''; return; }
   const monthClaims = state.claims.filter((c) => c.agent === agent && c.year === f.year && c.month === f.month);
   const monthAtt = state.attendance.filter((a) => a.agent === agent && a.year === f.year && a.month === f.month);
-  const s = computeAgentSummaries(monthClaims, monthAtt, [agent])[0];
+  const s = computeAgentSummaries(monthClaims, monthAtt, [agent], ymOf(f.year, f.month))[0];
   const label = `${MONTH_NAMES[f.month - 1]} ${f.year}`;
   const isMe = agent === matchAgentName();
   const who = isMe ? 'Your' : `${escHtml(firstNameOf(agent))}'s`;
@@ -5358,7 +5462,7 @@ function renderLogSide(agent, f) {
     if (iso > today) break;
     days.push({ iso, d, e: byDate.get(iso) });
   }
-  const tiers = getTiersForAgent(agent);
+  const tiers = s.kpi.tiers || getTiersForAgent(agent, ymOf(f.year, f.month));
   const target = s.kpi.nextTier || [...tiers].sort((a, b) => b.min - a.min)[0];
   const max = Math.max(target.min * 1.25, ...days.map((x) => (x.e && x.e.logged ? x.e.total : 0)), 1);
   const best = Math.max(0, ...days.map((x) => (x.e && x.e.logged ? x.e.total : 0)));
@@ -5418,7 +5522,7 @@ function renderProfile() {
   const nowParts = nowInZone();
   const { filteredClaims: monthClaims, filteredAttendance: monthAttendance } =
     applyFilters(state.claims, state.attendance, { year: nowParts.year, month: nowParts.month, agent: 'all' });
-  const summaries = computeAgentSummaries(monthClaims, monthAttendance, state.agents);
+  const summaries = computeAgentSummaries(monthClaims, monthAttendance, state.agents, currentYm());
   const me = summaries.find((s) => s.agent === myAgentName);
 
   document.getElementById('profile-header-mount').innerHTML = `
