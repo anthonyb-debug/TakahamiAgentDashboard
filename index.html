@@ -2358,6 +2358,10 @@ function computeAgentSummaries(claims, attendance, agentNames) {
     // Claims processed (column F) behind mtdClaims, for the breakdown line.
     const mtdProcessed = agentClaims.filter((c) => c.logged).reduce((s, c) => s + c.processed, 0);
     const hasCombined = agentClaims.some((c) => c.combined);
+    // Total Claims (column G) on its own, over the days that have one.
+    const totalRows = agentClaims.filter((c) => c.logged && !c.absent && c.totalClaims != null);
+    const mtdTotal = totalRows.reduce((s, c) => s + c.totalClaims, 0);
+    const hasTotals = totalRows.length > 0;
     // Denominator = distinct days the agent logged anything: a real claim
     // count (claims > 0) PLUS days explicitly logged as absent (a typed 0).
     // Blank / never-logged days are excluded. Because absences add to the
@@ -2374,7 +2378,7 @@ function computeAgentSummaries(claims, attendance, agentNames) {
     const attendancePct = agentAttendance.length
       ? agentAttendance.reduce((s, a) => s + a.attendance, 0) / agentAttendance.length : 0;
     const kpi = calculateKpi(agent, avgClaimsPerDay);
-    return { agent, todayClaims, todayProcessed, todayTotal, todayCombined, mtdClaims, mtdProcessed, hasCombined, avgClaimsPerDay, countedDays, absDays, vlDays, chDays, attendancePct, kpi, rank: 0 };
+    return { agent, todayClaims, todayProcessed, todayTotal, todayCombined, mtdClaims, mtdProcessed, mtdTotal, hasTotals, hasCombined, avgClaimsPerDay, countedDays, absDays, vlDays, chDays, attendancePct, kpi, rank: 0 };
   });
   // Ranked by Avg Claims / Day (the same number KPI tiers are scored on),
   // so days on VL / CH never push anyone down. Agents with no work days
@@ -4462,6 +4466,21 @@ function nextTierLevelOf(s) {
   return (s.kpi.nextTier || tiers[tiers.length - 1]).level;
 }
 
+// "260 processed · 325 total" under each name. Client-report totals come
+// from another tab with no processed split, so they keep a single figure.
+function leaderboardFigures(s) {
+  if (s.clientSource) return `${fmtNum(s.mtdClaims)} claims (client report)`;
+  return `${fmtNum(s.mtdProcessed || 0)} processed${s.hasTotals ? ` · ${fmtNum(s.mtdTotal)} total` : ''}`;
+}
+function leaderboardTitle(s) {
+  const days = `${s.countedDays} work day${s.countedDays !== 1 ? 's' : ''}`;
+  if (s.clientSource) return `${fmtNum(s.mtdClaims)} client-report claims over ${days}`;
+  const basis = s.hasCombined
+    ? (s.mtdClaims === s.mtdTotal ? 'Total claims' : 'Total where it applies, otherwise Processed')
+    : 'Processed claims';
+  return `Avg / day = ${fmtNum(s.mtdClaims)} counted claims (${basis}) over ${days}`;
+}
+
 function renderLeaderboard(summaries, mountId, filters) {
   const mount = document.getElementById(mountId);
   const max = summaries.reduce((m, s) => Math.max(m, s.avgClaimsPerDay), 0);
@@ -4478,7 +4497,7 @@ function renderLeaderboard(summaries, mountId, filters) {
         <div class="lb-avatar" aria-hidden="true">${avatarHtml(s.agent, photo)}</div>
         <div class="lb-name">
           <p>${escHtml(s.agent)} ${isMe ? '<span style="color:rgb(var(--primary));">(you)</span>' : ''}</p>
-          <span title="${fmtNum(s.mtdClaims)} claims over ${s.countedDays} work day${s.countedDays !== 1 ? 's' : ''}">${fmtNum(s.mtdClaims)} claims · ${s.countedDays} day${s.countedDays !== 1 ? 's' : ''}</span>
+          <span title="${leaderboardTitle(s)}">${leaderboardFigures(s)}</span>
           <div class="lb-bar" aria-hidden="true"><span style="width:${pct.toFixed(1)}%"></span></div>
         </div>
         <div class="lb-stats"><p class="val mono" title="Avg claims / day">${fmtNum(s.avgClaimsPerDay, 1)}</p>${tierChipHtml(s.kpi, !s.countedDays)}</div>
