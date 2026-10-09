@@ -939,6 +939,22 @@
   .dc-title { flex: 1 1 13rem; }
 
   table.claims-table .not-logged { white-space: nowrap; }
+
+  /* Log form helpers */
+  .label-hint { font-weight: 400; color: rgb(var(--muted)); font-size: .72rem; }
+  /* Labels can wrap to two lines on narrow forms; keep both boxes level. */
+  .field-pair { align-items: end; }
+  .log-live-note { font-size: .78rem; color: rgb(var(--ink)); margin: .55rem 0 0; line-height: 1.45; }
+  .log-live-note:empty { display: none; }
+  .log-live-note.warn { color: rgb(var(--warm)); font-weight: 600; }
+  .log-live-note b { font-variant-numeric: tabular-nums; }
+  .log-enter-hint { font-size: .72rem; color: rgb(var(--muted)); margin: -.35rem 0 0; }
+  @media (pointer: coarse) { .log-enter-hint { display: none; } }
+
+  /* Goal card: month pace line */
+  .goal-pace { margin: .35rem 0 0; font-size: .78rem; color: rgb(var(--muted)); }
+  .goal-pace b { color: rgb(var(--ink)); font-variant-numeric: tabular-nums; }
+
 </style>
 </head>
 <body>
@@ -1122,7 +1138,7 @@
         <div class="log-layout">
           <div class="glass card">
             <h3 class="chart-title">Log daily claims</h3>
-            <p class="log-help">Enter the <strong>day's total</strong>. Saving replaces any number already logged for that date, so you can also use this to correct an entry.</p>
+            <p class="log-help">Enter the day's <strong>claims processed</strong> and <strong>total claims</strong> (total includes the processed ones). Saving replaces anything already logged for that date, so you can also use this to correct an entry.</p>
             <details class="log-details">
               <summary>Leave, holiday, or absence?</summary>
               <div id="log-leave-help"></div>
@@ -1145,7 +1161,7 @@
                     <input type="number" id="log-claims-input" min="0" step="1" inputmode="numeric" placeholder="e.g. 62" style="width:100%;" />
                   </div>
                   <div class="field">
-                    <label for="log-total-input">Total claims</label>
+                    <label for="log-total-input">Total claims <span class="label-hint">incl. processed</span></label>
                     <input type="number" id="log-total-input" min="0" step="1" inputmode="numeric" placeholder="e.g. 80" style="width:100%;" />
                   </div>
                 </div>
@@ -1153,9 +1169,11 @@
                   <input type="checkbox" id="log-absent-input" style="width:auto; margin:0;" />
                   Mark as absent (ABS), logs 0 for this day
                 </label>
+                <p id="log-live-note" class="log-live-note" aria-live="polite"></p>
                 <p id="log-current-value-note" style="font-size:.74rem; color:rgb(var(--muted)); margin:.3rem 0 0; min-height:1em;"></p>
               </div>
               <button class="btn btn-primary lg" id="log-submit-btn">Save claims</button>
+              <p id="log-enter-hint" class="log-enter-hint">Press Enter in Processed to jump to Total, and Enter again to save.</p>
               <p id="log-status" role="status" aria-live="polite" style="font-size:.8rem; color:rgb(var(--muted)); margin:0; min-height:1em;"></p>
             </div>
           </div>
@@ -2911,7 +2929,7 @@ function switchView(view, tab) {
   setPageHeading(view);
   window.scrollTo({ top: 0 });
   if (view === 'dashboard') renderDashboard();
-  if (view === 'log') renderLogClaims();
+  if (view === 'log') { state.logEntering = true; renderLogClaims(); }
   if (view === 'history') renderHistory();
   if (view === 'profile') renderProfile();
 }
@@ -2985,7 +3003,7 @@ function setPageHeading(view) {
     sub.textContent = scope;
   } else if (view === 'log') {
     h1.textContent = 'Log claims';
-    sub.textContent = isManager ? 'Log or correct a day for any agent.' : 'Record your total for the day, or fix an earlier entry.';
+    sub.textContent = isManager ? 'Log or correct a day for any agent.' : 'Record your processed and total claims for the day, or fix an earlier entry.';
   } else if (view === 'history') {
     h1.textContent = 'History';
     sub.textContent = `${f ? f.year : ''} month by month · ${who} · ${isManagerView() ? 'Agent logs (Prod tab)' : 'Logged claims'}`;
@@ -4192,7 +4210,24 @@ function ringHtml(pct, met, centerHtml, label) {
     </div>`;
 }
 
-function renderGoalProgress(me) {
+// One line under today's goal tying the day to the month: how many claims a
+// day it takes to reach (or keep) the next tier, from the same projection the
+// Avg / Day card uses. Only for the current month with no custom range.
+function goalPaceHtml(me, filters, loggedToday) {
+  if (!filters || filters.month === 'all' || filters.dateFrom || filters.dateTo || me.clientSource) return '';
+  const proj = computeMonthProjection(state.claims, me, filters.year, filters.month);
+  if (!proj || !proj.remaining) return '';
+  const days = `${proj.remaining} work day${proj.remaining !== 1 ? 's' : ''}`;
+  const when = loggedToday ? `a day over the next ${days}` : `a day, starting today (${days} left)`;
+  if (proj.neededPerDay === 0) return `<p class="goal-pace">KPI ${proj.target.level} is locked in for this month.</p>`;
+  if (!proj.sustaining && proj.neededPerDay > proj.target.min * 2 && proj.current) {
+    if (proj.keepPerDay === 0) return `<p class="goal-pace">KPI ${proj.current.level} is secure for this month.</p>`;
+    return `<p class="goal-pace"><b>${fmtNum(Math.ceil(proj.keepPerDay))}</b> ${when} keeps KPI ${proj.current.level}.</p>`;
+  }
+  return `<p class="goal-pace"><b>${fmtNum(Math.ceil(proj.neededPerDay))}</b> ${when} ${proj.sustaining ? 'keeps' : 'reaches'} KPI ${proj.target.level}.</p>`;
+}
+
+function renderGoalProgress(me, filters) {
   const mount = document.getElementById('goal-progress-mount');
   if (!me) { mount.innerHTML = ''; return; }
   const gp = goalProgress(me.agent, me.todayClaims);
@@ -4224,8 +4259,9 @@ function renderGoalProgress(me) {
             : `<span class="mono" style="font-weight:700;color:rgb(var(--ink));">${gp.current}</span> processed${me.todayTotal != null ? ` (${fmtNum(me.todayTotal)} total)` : ''}`} &middot; ${met
             ? '<span style="font-weight:700;color:rgb(var(--accent));">Goal met</span>'
             : `<span class="mono" style="font-weight:700;color:rgb(var(--ink));">${gp.remaining}</span> to go`}</p>
+          ${goalPaceHtml(me, filters, loggedToday)}
         </div>
-        ${canLog ? `<button type="button" class="btn btn-primary goal-cta" data-log-today>${ICONS.edit}${loggedToday ? "Update today's total" : "Log today's claims"}</button>` : ''}
+        ${canLog ? `<button type="button" class="btn btn-primary goal-cta" data-log-today>${ICONS.edit}${loggedToday ? "Update today's claims" : "Log today's claims"}</button>` : ''}
       </div>
       ${ringHtml(gp.progressPct, met, `
         <span class="ring-pct mono">${gp.progressPct}%</span>
@@ -4913,7 +4949,7 @@ function renderLogClaims() {
     <p>Leave a day blank only if it hasn't been logged yet. Blank work days show up as missing.</p>
     <p>Use <strong>Mark as absent (ABS)</strong> only for an <em>unplanned</em> absence. It logs a 0, which does count toward the average.</p>` : `
     <p><strong>Planned or vacation leave (VL)</strong> and <strong>client holidays (CH)</strong> are added by your manager. You don't need to log anything for those days, and they don't count toward your Avg Claims / Day.</p>
-    <p>On a work day, log your total before the day ends. Days you haven't logged yet show up as missing.</p>
+    <p>On a work day, log your <strong>claims processed</strong> and your <strong>total claims</strong> before the day ends. Total includes the processed ones, so don't subtract them. Days you haven't logged yet show up as missing.</p>
     <p>Use <strong>Mark as absent (ABS)</strong> only for an <em>unplanned</em> absence. It logs a 0, which does count toward your average.</p>
     <p>On leave but see a work day here? Ask your manager to mark it as VL.</p>`;
   // Rebuilt whenever the roster changes rather than once ever, so an agent
@@ -4928,9 +4964,21 @@ function renderLogClaims() {
     agentSelect.dataset.rosterSig = rosterSig;
   }
 
-  if (!dateInput.value) dateInput.value = todayISO();
+  // Fresh visit to this page: start on the day most likely to need logging.
+  // Navigating here again resets it, but filter changes (which also re-render
+  // this page) leave whatever date the person picked alone.
+  const entering = !!state.logEntering;
+  state.logEntering = false;
+  let pickedMissing = null;
+  if (!dateInput.value || entering) {
+    const who = isManager ? (agentSelect.value || (rosterAgents()[0] || {}).agent) : state.identity.name;
+    const pick = defaultLogDate(who);
+    dateInput.value = pick.date;
+    pickedMissing = pick.missing ? pick.date : null;
+  }
   // Arriving from "Log today's claims" or a missing-day banner.
   if (state.logPrefill) {
+    pickedMissing = null;
     if (isManager && state.logPrefill.agent && rosterAgents().some((a) => a.agent === state.logPrefill.agent)) agentSelect.value = state.logPrefill.agent;
     if (state.logPrefill.date) dateInput.value = state.logPrefill.date;
     state.logPrefill = null;
@@ -4966,7 +5014,7 @@ function renderLogClaims() {
     totalInput.disabled = absentInput.checked;
     if (absentInput.checked) { claimsInput.value = ''; totalInput.value = ''; }
   }
-  absentInput.onchange = syncAbsentUI;
+  absentInput.onchange = () => { syncAbsentUI(); updateLiveNote(); };
 
   function updateLogCurrentValueNote() {
     const note = document.getElementById('log-current-value-note');
@@ -5004,8 +5052,55 @@ function renderLogClaims() {
       note.textContent = 'Nothing logged for this date yet.';
     }
     syncAbsentUI();
+    updateLiveNote();
   }
-  dateInput.onchange = updateLogCurrentValueNote;
+  dateInput.onchange = () => { updateLogCurrentValueNote(); updateLiveNote(); };
+
+  // Live check under the two numbers: says which one this day will count and
+  // catches a Total that's lower than Processed (usually the leftover claims
+  // typed instead of the full count) before Save is pressed.
+  function updateLiveNote() {
+    const el = document.getElementById('log-live-note');
+    if (!el) return;
+    el.classList.remove('warn');
+    if (absentInput.checked) { el.innerHTML = ''; return; }
+    const pRaw = claimsInput.value.trim(), tRaw = totalInput.value.trim();
+    const p = pRaw === '' ? null : parseInt(pRaw, 10);
+    const t = tRaw === '' ? null : parseInt(tRaw, 10);
+    const totalRuleOn = !!(CONFIG.COMBINED_CLAIMS_FROM && dateInput.value && dateInput.value >= CONFIG.COMBINED_CLAIMS_FROM);
+    if (p === null && t === null) { el.innerHTML = ''; return; }
+    if (p === null || isNaN(p) || p < 0) { el.textContent = 'Enter your claims processed first.'; return; }
+    if (t !== null && (isNaN(t) || t < 0)) { el.classList.add('warn'); el.textContent = 'Total claims needs to be a whole number, or leave it blank.'; return; }
+    if (t !== null && t < p) {
+      el.classList.add('warn');
+      el.textContent = `Total can't be lower than processed (${fmtNum(p)}). Total includes the processed claims, so enter the full count, not what's left.`;
+      return;
+    }
+    if (t === null) {
+      el.innerHTML = totalRuleOn
+        ? `No total yet, so this day counts <b>${fmtNum(p)}</b> (processed) toward your average. Add your total to count it instead.`
+        : `This day counts <b>${fmtNum(p)}</b> (processed) toward your average.`;
+      return;
+    }
+    const others = t - p;
+    el.innerHTML = totalRuleOn
+      ? `Total <b>${fmtNum(t)}</b> includes your <b>${fmtNum(p)}</b> processed${others ? ` plus ${fmtNum(others)} more` : ''}. This day counts <b>${fmtNum(t)}</b> toward your average.`
+      : `This day counts <b>${fmtNum(p)}</b> (processed) toward your average. Total ${fmtNum(t)} is kept for reference.`;
+  }
+  claimsInput.oninput = updateLiveNote;
+  totalInput.oninput = updateLiveNote;
+
+  // Keyboard flow: Enter on the date goes to Processed, Enter on Processed
+  // goes to Total, Enter on Total saves.
+  const onEnter = (fn) => (e) => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    e.preventDefault();
+    fn();
+  };
+  dateInput.onkeydown = onEnter(() => { if (absentInput.checked) submitBtn.click(); else claimsInput.focus(); });
+  claimsInput.onkeydown = onEnter(() => { totalInput.focus(); totalInput.select(); });
+  totalInput.onkeydown = onEnter(() => submitBtn.click());
+  absentInput.onkeydown = onEnter(() => submitBtn.click());
 
   if (!CONFIG.APPS_SCRIPT_URL) {
     statusEl.textContent = 'Logging isn\'t connected yet — ask whoever set this up to add APPS_SCRIPT_URL in the CONFIG block.';
@@ -5121,6 +5216,29 @@ function renderLogClaims() {
   }
   renderLogMissingChips(historyTarget);
   updateLogCurrentValueNote();
+  if (pickedMissing && !statusEl.textContent) {
+    statusEl.style.color = cssVarColor('--muted');
+    statusEl.textContent = `Today's already logged, so the date is set to ${fmtDisplayDate(pickedMissing)}, your oldest day with nothing logged.`;
+  }
+  // Start in the Processed box on a fresh visit. Skipped on touch screens,
+  // where focusing would pop the keyboard over the page.
+  if (entering && !claimsInput.disabled && window.matchMedia('(pointer: fine)').matches) {
+    claimsInput.focus({ preventScroll: true });
+  }
+}
+
+// The date the Log page opens on: today if today still needs logging,
+// otherwise the oldest recent work day with nothing logged, otherwise today.
+function defaultLogDate(agent) {
+  const today = todayISO();
+  if (!agent || !state.claims || !state.claims.length) return { date: today, missing: false };
+  const dow = isoToUtcDate(today).getUTCDay();
+  const todayIsWorkday = dow !== 0 && dow !== 6 && !isFederalHoliday(today);
+  const todayHandled = state.claims.some((c) => c.agent === agent && c.date === today && isRemindedEntry(c));
+  if (todayIsWorkday && !todayHandled) return { date: today, missing: false };
+  const missing = computeMissingWorkdays(state.claims, agent);
+  if (missing.length) return { date: missing[missing.length - 1], missing: true };
+  return { date: today, missing: false };
 }
 
 // Recent work days with nothing logged, as one-tap chips that fill the date.
@@ -5141,6 +5259,8 @@ function renderLogMissingChips(agent) {
       const input = document.getElementById('log-date-input');
       input.value = btn.dataset.date;
       input.dispatchEvent(new Event('change'));
+      const st = document.getElementById('log-status');
+      if (st && /oldest day with nothing logged/.test(st.textContent)) st.textContent = '';
       document.getElementById('log-claims-input').focus();
     };
   });
